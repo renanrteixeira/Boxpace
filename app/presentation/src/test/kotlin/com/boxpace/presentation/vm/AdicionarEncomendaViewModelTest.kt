@@ -1,5 +1,6 @@
 package com.boxpace.presentation.vm
 
+import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRemoteDataSource
 import com.boxpace.domain.ErroDeRastreio
 import com.boxpace.domain.Evento
@@ -234,5 +235,74 @@ class AdicionarEncomendaViewModelTest {
         assertEquals("", vm.form.value.codigo)
         assertEquals("", vm.form.value.etiqueta)
         assertTrue(vm.encomendas.value.isEmpty())
+    }
+
+    private fun encomenda(
+        etiqueta: String,
+        codigo: String = "AA123456789BR",
+        transportadora: Transportadora = Transportadora.CORREIOS,
+    ): Encomenda = Encomenda(
+        id = "${transportadora.scraperId}:$codigo",
+        codigo = codigo,
+        transportadora = transportadora,
+        etiqueta = etiqueta,
+        criadaEm = "2026-09-01T12:00:00Z",
+        atualizadaEm = "2026-09-01T12:00:00Z",
+    )
+
+    @Test
+    fun `filtrar busca por fragmento de etiqueta case-insensitive`() {
+        val lista = listOf(
+            encomenda("Fone de ouvido", "AA111111111BR"),
+            encomenda("Teclado mecânico", "AA222222222BR"),
+        )
+
+        assertEquals(1, AdicionarEncomendaViewModel.filtrarBusca(lista, "fone").size)
+        assertEquals(1, AdicionarEncomendaViewModel.filtrarBusca(lista, "FONE").size)
+        assertEquals("Fone de ouvido", AdicionarEncomendaViewModel.filtrarBusca(lista, "ouvido").single().etiqueta)
+        assertEquals(2, AdicionarEncomendaViewModel.filtrarBusca(lista, "").size)
+    }
+
+    @Test
+    fun `filtrar busca ignora espacos ao redor do termo`() {
+        val lista = listOf(
+            encomenda("Fone de ouvido", "AA111111111BR"),
+            encomenda("Teclado mecânico", "AA222222222BR"),
+        )
+
+        assertEquals(1, AdicionarEncomendaViewModel.filtrarBusca(lista, "  fone  ").size)
+        assertEquals("Fone de ouvido", AdicionarEncomendaViewModel.filtrarBusca(lista, "  fone  ").single().etiqueta)
+        assertEquals(1, AdicionarEncomendaViewModel.filtrarBusca(lista, "  111  ").size)
+    }
+
+    @Test
+    fun `filtrar busca por fragmento de codigo case-insensitive`() {
+        val lista = listOf(
+            encomenda("A", "AA111111111BR"),
+            encomenda("B", "aa222222222br"),
+        )
+
+        assertEquals(1, AdicionarEncomendaViewModel.filtrarBusca(lista, "111").size)
+        assertEquals("B", AdicionarEncomendaViewModel.filtrarBusca(lista, "222222").single().etiqueta)
+    }
+
+    @Test
+    fun `filtrar sem match retorna lista vazia`() {
+        val lista = listOf(encomenda("Fone de ouvido"))
+
+        assertTrue(AdicionarEncomendaViewModel.filtrarBusca(lista, "teclado").isEmpty())
+    }
+
+    @Test
+    fun `filtrar nao faz dedup por etiqueta repetida`() {
+        val lista = listOf(
+            encomenda("Caixa", "AA111111111BR"),
+            encomenda("Caixa", "AA222222222BR"),
+            encomenda("Caixa", "AA333333333BR"),
+        )
+
+        val resultado = AdicionarEncomendaViewModel.filtrarBusca(lista, "caixa")
+        assertEquals(3, resultado.size)
+        assertEquals(lista, resultado)
     }
 }

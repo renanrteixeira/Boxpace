@@ -155,4 +155,18 @@ class AdicionarEncomendaViewModel(
     /** Etiqueta sanitizada para sobreviver a round-trip JSON (escape `"`/`\`). */
     private fun sanitizarEtiqueta(etiqueta: String): String =
         etiqueta.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    companion object {
+        /**
+         * Filtra a lista por [termo] usando substring case-insensitive em
+         * etiqueta OU código. Lista original totalmente — sem dedup.
+         */
+        fun filtrarBusca(encomendas: List<Encomenda>, termo: String): List<Encomenda> {
+            if (termo.isBlank()) return encomendas
+            val lower = termo.trim().lowercase()
+            return encomendas.filter {
+                it.etiqueta.lowercase().contains(lower) || it.codigo.lowercase().contains(lower)
+            }
+        }
+    }
 }
