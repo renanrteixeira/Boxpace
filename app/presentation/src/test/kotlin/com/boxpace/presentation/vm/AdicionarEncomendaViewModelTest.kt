@@ -19,6 +19,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -304,5 +305,148 @@ class AdicionarEncomendaViewModelTest {
         val resultado = AdicionarEncomendaViewModel.filtrarBusca(lista, "caixa")
         assertEquals(3, resultado.size)
         assertEquals(lista, resultado)
+    }
+
+    private fun adicionarEncomenda(vm: AdicionarEncomendaViewModel, codigo: String, etiqueta: String) {
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        vm.codigoMudou(codigo)
+        vm.etiquetaMudou(etiqueta)
+        vm.adicionar()
+    }
+
+    @Test
+    fun `ativas e fechadas derivadas por fechadaEm`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Ativa um")
+        adicionarEncomenda(vm, "AA222222222BR", "Fecho esta")
+
+        val fecharId = vm.buscarPorId("correios:AA222222222BR")!!.id
+        vm.arquivar(fecharId)
+
+        assertEquals(1, vm.encomendasAtivas().size)
+        assertEquals("Ativa um", vm.encomendasAtivas().single().etiqueta)
+        assertEquals(1, vm.encomendasFechadas().size)
+        assertEquals("Fecho esta", vm.encomendasFechadas().single().etiqueta)
+    }
+
+    @Test
+    fun `arquivar seta fechadaEm e move para fechadas`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+
+        vm.arquivar(id)
+
+        assertNotNull(vm.buscarPorId(id)?.fechadaEm)
+        assertTrue(vm.encomendasAtivas().isEmpty())
+        assertEquals(1, vm.encomendasFechadas().size)
+    }
+
+    @Test
+    fun `reabrir volta ao topo de ativas com atualizadaEm agora`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        adicionarEncomenda(vm, "AA222222222BR", "Dois")
+        val idReaberta = vm.buscarPorId("correios:AA222222222BR")!!.id
+        vm.arquivar(idReaberta)
+
+        vm.reabrir(idReaberta)
+
+        assertEquals(idReaberta, vm.encomendasAtivas().first().id)
+        assertEquals(2, vm.encomendasAtivas().size)
+        assertNull(vm.buscarPorId(idReaberta)?.fechadaEm)
+        assertEquals("2026-09-01T12:00:00Z", vm.buscarPorId(idReaberta)?.atualizadaEm)
+        assertTrue(vm.encomendasFechadas().isEmpty())
+    }
+
+    @Test
+    fun `excluir ativa remove da lista`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+
+        vm.excluir(id)
+
+        assertNull(vm.buscarPorId(id))
+        assertTrue(vm.encomendas.value.isEmpty())
+    }
+
+    @Test
+    fun `excluir fechada remove da lista`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        vm.arquivar(id)
+
+        vm.excluir(id)
+
+        assertNull(vm.buscarPorId(id))
+        assertTrue(vm.encomendas.value.isEmpty())
+    }
+
+    @Test
+    fun `revalidar sucesso atualiza eventos in place preservando fechadaEm`() = runTest {
+        val vm = viewModel()
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T09:00:00", "Objeto postado")))
+        }
+        vm.codigoMudou("AA111111111BR")
+        vm.etiquetaMudou("Um")
+        vm.adicionar()
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        vm.arquivar(id)
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+
+        val atualizada = vm.buscarPorId(id)!!
+        assertEquals("Objeto entregue ao destinatário", atualizada.ultimoStatus)
+        assertEquals(1, atualizada.eventos.size)
+        assertEquals("Objeto entregue ao destinatário", atualizada.eventos.single().descricao)
+        assertTrue(atualizada.statusEntregue)
+        assertNotNull(atualizada.fechadaEm)
+    }
+
+    @Test
+    fun `revalidar erro mantem cache`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val antes = vm.buscarPorId(id)!!.atualizadaEm
+
+        remote.resultado = { _, _, _ -> throw ErroDeRastreio.SemConexao() }
+        vm.revalidar(id)
+
+        val depois = vm.buscarPorId(id)!!
+        assertEquals(antes, depois.atualizadaEm)
+        assertTrue(depois.eventos.isEmpty())
+    }
+
+    @Test
+    fun `revalidar id inexistente e no-op silencioso`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val chamadasAntes = remote.chamadas
+        vm.excluir(id)
+
+        vm.revalidar(id)
+
+        assertEquals(chamadasAntes, remote.chamadas)
+        assertNull(vm.buscarPorId(id))
+    }
+
+    @Test
+    fun `buscarPorId retorna encomenda ou null`() = runTest {
+        val vm = viewModel()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+
+        assertNotNull(vm.buscarPorId("correios:AA111111111BR"))
+        assertNull(vm.buscarPorId("correios:NAOEXISTE"))
     }
 }

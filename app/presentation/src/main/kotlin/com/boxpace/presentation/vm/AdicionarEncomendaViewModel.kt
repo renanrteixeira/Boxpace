@@ -156,6 +156,77 @@ class AdicionarEncomendaViewModel(
     private fun sanitizarEtiqueta(etiqueta: String): String =
         etiqueta.replace("\\", "\\\\").replace("\"", "\\\"")
 
+    /** Filtra as encomendas ativas (`fechadaEm == null`). */
+    fun encomendasAtivas(): List<Encomenda> = _encomendas.value.filter { it.fechadaEm == null }
+
+    /** Filtra as encomendas fechadas (`fechadaEm != null`). */
+    fun encomendasFechadas(): List<Encomenda> = _encomendas.value.filter { it.fechadaEm != null }
+
+    /** Busca uma encomenda pelo id, ou `null` se não existir mais. */
+    fun buscarPorId(id: String): Encomenda? = _encomendas.value.firstOrNull { it.id == id }
+
+    /** Arquiva: seta `fechadaEm = agora` (sai de Ativos, entra em Fechados). */
+    fun arquivar(id: String) {
+        _encomendas.update { lista ->
+            lista.map { encomenda ->
+                if (encomenda.id == id && encomenda.fechadaEm == null) {
+                    encomenda.copy(fechadaEm = agora())
+                } else {
+                    encomenda
+                }
+            }
+        }
+    }
+
+    /** Reabre: `fechadaEm = null` e volta ao topo de Ativos com `atualizadaEm = agora`. */
+    fun reabrir(id: String) {
+        _encomendas.update { lista ->
+            val alvo = lista.find { it.id == id && it.fechadaEm != null } ?: return@update lista
+            val restante = lista.filterNot { it.id == id }
+            listOf(alvo.copy(fechadaEm = null, atualizadaEm = agora())) + restante
+        }
+    }
+
+    /** Exclui: remove da lista (ativa ou fechada). */
+    fun excluir(id: String) {
+        _encomendas.update { lista -> lista.filterNot { it.id == id } }
+    }
+
+    /**
+     * Revalida em background: rastreia de novo via use case e substitui os
+     * eventos/`ultimoStatus`/`statusEntregue`/`atualizadaEm` in-place, desde que
+     * o id ainda exista (race guard). Preserva `fechadaEm` atual; id inexistente
+     * (excluída) = no-op silencioso; erro mantém o cache atual.
+     */
+    fun revalidar(id: String) {
+        val alvo = buscarPorId(id) ?: return
+        viewModelScope.launch {
+            try {
+                when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
+                    is RastreioResult.Sucesso -> {
+                        _encomendas.update { lista ->
+                            lista.map { encomenda ->
+                                if (encomenda.id != id) return@map encomenda
+                                if (resultado.eventos.isEmpty() && encomenda.eventos.isNotEmpty()) return@map encomenda
+                                encomenda.copy(
+                                    ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
+                                    statusEntregue = resultado.eventos.any {
+                                        it.descricao.contains("entregue", ignoreCase = true)
+                                    },
+                                    eventos = resultado.eventos,
+                                    atualizadaEm = agora(),
+                                )
+                            }
+                        }
+                    }
+                    is RastreioResult.NaoImplementado -> Unit
+                }
+            } catch (_: Exception) {
+                // conservador: mantém o cache atual
+            }
+        }
+    }
+
     companion object {
         /**
          * Filtra a lista por [termo] usando substring case-insensitive em
