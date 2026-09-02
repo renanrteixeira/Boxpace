@@ -17,7 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boxpace.data.di.DataModule
 import com.boxpace.domain.RastrearEncomendaUseCase
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
-import com.boxpace.presentation.ui.AtivosScreen
+import com.boxpace.presentation.ui.BoxpaceTabs
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.UiEvent
 
@@ -54,7 +54,7 @@ fun BoxpaceApp() {
         }
     }
 
-    AtivosScreen(
+    BoxpaceTabs(
         encomendas = encomendas,
         onAdicionar = { dialogAberto = true },
     )
