@@ -18,6 +18,7 @@ import com.boxpace.data.di.DataModule
 import com.boxpace.domain.RastrearEncomendaUseCase
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
+import com.boxpace.presentation.ui.DetalhesScreen
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.UiEvent
 
@@ -45,6 +46,7 @@ fun BoxpaceApp() {
     val encomendas by viewModel.encomendas.collectAsState()
     val form by viewModel.form.collectAsState()
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
+    var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(viewModel) {
         viewModel.eventos.collect { evento ->
@@ -54,10 +56,38 @@ fun BoxpaceApp() {
         }
     }
 
-    BoxpaceTabs(
-        encomendas = encomendas,
-        onAdicionar = { dialogAberto = true },
-    )
+    // Revalida em background ao abrir a Detalhes.
+    val encomendaDetalhe = detalhesId?.let { viewModel.buscarPorId(it) }
+
+    // Se o id aponta para algo que não existe mais (ex.: excluída), volta à lista.
+    LaunchedEffect(detalhesId, encomendaDetalhe) {
+        if (detalhesId != null && encomendaDetalhe == null) {
+            detalhesId = null
+        }
+    }
+    LaunchedEffect(detalhesId) {
+        detalhesId?.let { viewModel.revalidar(it) }
+    }
+
+    if (encomendaDetalhe != null) {
+        DetalhesScreen(
+            encomenda = encomendaDetalhe,
+            onArquivar = { viewModel.arquivar(detalhesId!!) },
+            onReabrir = { viewModel.reabrir(detalhesId!!) },
+            onExcluir = {
+                viewModel.excluir(detalhesId!!)
+                detalhesId = null
+            },
+            onVoltar = { detalhesId = null },
+        )
+    } else {
+        BoxpaceTabs(
+            encomendasAtivas = viewModel.encomendasAtivas(),
+            encomendasFechadas = viewModel.encomendasFechadas(),
+            onAdicionar = { dialogAberto = true },
+            onAbrirDetalhes = { detalhesId = it.id },
+        )
+    }
 
     if (dialogAberto) {
         AdicionarEncomendaDialog(

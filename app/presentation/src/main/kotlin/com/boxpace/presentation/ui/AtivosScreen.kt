@@ -40,11 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
-import com.boxpace.domain.Transportadora
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 private val Acento = Color(0xFFEE6E34)
 private val TintaSobreAcento = Color(0xFF2B1000)
@@ -58,6 +54,7 @@ private val VerdeSucesso = Color(0xFF1E7F4F)
 fun AtivosScreen(
     encomendas: List<Encomenda>,
     onAdicionar: () -> Unit,
+    onAbrirDetalhes: (Encomenda) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var termo by rememberSaveable { mutableStateOf("") }
@@ -112,7 +109,7 @@ fun AtivosScreen(
                 else -> {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(filtradas, key = { it.id }) { encomenda ->
-                            EncomendaRow(encomenda)
+                            EncomendaRow(encomenda, onClick = { onAbrirDetalhes(encomenda) })
                         }
                     }
                 }
@@ -156,12 +153,14 @@ private fun LupaIcon(modifier: Modifier = Modifier) {
 @Composable
 private fun EncomendaRow(
     encomenda: Encomenda,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val fontScale = LocalDensity.current.fontScale
     val empilha = fontScale >= 2.0f
 
     Surface(
+        onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -232,24 +231,6 @@ private fun EncomendaRow(
             }
         }
     }
-}
-
-private val HoraFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("HH:mm")
-
-internal fun formatarHorario(iso: String): String {
-    return try {
-        Instant.parse(iso)
-            .atZone(ZoneId.systemDefault())
-            .format(HoraFormatter)
-    } catch (_: Exception) {
-        ""
-    }
-}
-
-internal fun Transportadora.nomeExibicao(): String = when (this) {
-    Transportadora.CORREIOS -> "Correios"
-    Transportadora.JT -> "J&T"
 }
 
 @Composable
