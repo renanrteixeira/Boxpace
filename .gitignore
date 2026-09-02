@@ -28,3 +28,10 @@ bin/
 
 # OS
 .DS_Store
+
+_bmad
+_bmad-output
+.agents
+.opencode
+.github/agents
+.claude
