@@ -267,23 +267,32 @@ class AdicionarEncomendaViewModel(
                     is RastreioResult.Sucesso -> {
                         val atual = encomendas.value.firstOrNull { it.id == id } ?: return@launch
                         if (resultado.eventos.isEmpty() && atual.eventos.isNotEmpty()) return@launch
-                        repository.salvar(
-                            atual.copy(
-                                ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
-                                statusEntregue = resultado.eventos.any {
-                                    it.descricao.contains("entregue", ignoreCase = true)
-                                },
-                                eventos = resultado.eventos,
-                                atualizadaEm = agora(),
-                                // Sem eventos: conta mais uma busca pra chegar ao badge
-                                // "Sem dados"; com eventos, volta a zero.
-                                buscasSemEventos = if (resultado.eventos.isEmpty()) {
-                                    atual.buscasSemEventos + 1
-                                } else {
-                                    0
-                                },
-                            ),
+                        val snapshot = atual.copy(
+                            ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
+                            eventos = resultado.eventos,
+                            atualizadaEm = agora(),
+                            // Sem eventos: conta mais uma busca pra chegar ao badge
+                            // "Sem dados"; com eventos, volta a zero.
+                            buscasSemEventos = if (resultado.eventos.isEmpty()) {
+                                atual.buscasSemEventos + 1
+                            } else {
+                                0
+                            },
                         )
+                        val entregue = snapshot.estaEntregue()
+                        val aPersistir = snapshot.copy(
+                            statusEntregue = entregue,
+                            // Migração automática (AD-6, AD-FECHADO): só quando a
+                            // encomenda não foi arquivada manualmente (`fechadaEm`
+                            // null) e o rastreio indica entrega. Não sobrescreve um
+                            // fechado manual.
+                            fechadaEm = if (!snapshot.estaFechada() && entregue) {
+                                agora()
+                            } else {
+                                snapshot.fechadaEm
+                            },
+                        )
+                        repository.salvar(aPersistir)
                         repository.purgarFechadasAntigas(PURGA_DIAS)
                     }
                     is RastreioResult.NaoImplementado -> Unit

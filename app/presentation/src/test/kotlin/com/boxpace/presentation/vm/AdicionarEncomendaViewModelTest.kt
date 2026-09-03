@@ -667,6 +667,109 @@ class AdicionarEncomendaViewModelTest {
     }
 
     @Test
+    fun `revalidar migra entregue ativa para fechados setando fechadaEm`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        assertNull(vm.detalhe(id).first()?.fechadaEm)
+        assertTrue(vm.encomendasAtivas.value.isNotEmpty())
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        val atualizada = vm.detalhe(id).first()!!
+        assertTrue(atualizada.estaEntregue())
+        assertTrue(atualizada.statusEntregue)
+        assertTrue(atualizada.estaFechada())
+        assertEquals("2026-09-01T12:00:00Z", atualizada.fechadaEm)
+        assertTrue(vm.encomendasAtivas.value.isEmpty())
+        assertEquals(1, vm.encomendasFechadas.value.size)
+    }
+
+    @Test
+    fun `revalidar sem entrega mantem ativa e fechadaEm null`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Saiu para entrega")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        val atualizada = vm.detalhe(id).first()!!
+        assertFalse(atualizada.estaEntregue())
+        assertFalse(atualizada.estaFechada())
+        assertNull(atualizada.fechadaEm)
+        assertEquals(1, vm.encomendasAtivas.value.size)
+        assertTrue(vm.encomendasFechadas.value.isEmpty())
+    }
+
+    @Test
+    fun `revalidar nao sobrescreve fechadaEm de encomenda arquivada`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
+        val fechadaEmArquivo = vm.detalhe(id).first()!!.fechadaEm
+        assertNotNull(fechadaEmArquivo)
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(fechadaEmArquivo, vm.detalhe(id).first()?.fechadaEm)
+        assertTrue(vm.detalhe(id).first()!!.estaEntregue())
+        assertEquals(1, vm.encomendasFechadas.value.size)
+        assertTrue(vm.encomendasAtivas.value.isEmpty())
+    }
+
+    @Test
+    fun `revalidar reaberta entregue volta a fechados`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
+        vm.reabrir(id)
+        testScheduler.advanceUntilIdle()
+        assertNull(vm.detalhe(id).first()?.fechadaEm)
+        assertTrue(vm.encomendasAtivas.value.size == 1)
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        val atualizada = vm.detalhe(id).first()!!
+        assertTrue(atualizada.estaEntregue())
+        assertTrue(atualizada.estaFechada())
+        assertEquals("2026-09-01T12:00:00Z", atualizada.fechadaEm)
+        assertTrue(vm.encomendasAtivas.value.isEmpty())
+        assertEquals(1, vm.encomendasFechadas.value.size)
+    }
+
+    @Test
     fun `repetirBusca refaz a busca e incrementa o contador sem eventos`() = runTest {
         val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
