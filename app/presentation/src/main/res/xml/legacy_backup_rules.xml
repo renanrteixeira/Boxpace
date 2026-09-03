@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Regras de backup legadas (API < 31). Exclui o banco Room `boxpace.db` (e seus
+  sidecars `-wal`/`-shm`, que podem conter o CPF do destinatário não
+  checkpointed) — dado pessoal sensível — LGPD/AD-DADO-SENSIVEL.
+-->
+<full-backup-content>
+    <exclude
+        domain="database"
+        path="boxpace.db" />
+    <exclude
+        domain="database"
+        path="boxpace.db-wal" />
+    <exclude
+        domain="database"
+        path="boxpace.db-shm" />
+</full-backup-content>

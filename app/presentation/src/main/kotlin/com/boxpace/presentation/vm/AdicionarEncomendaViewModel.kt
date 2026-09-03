@@ -2,7 +2,9 @@ package com.boxpace.presentation.vm
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.Encomenda
+import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.ErroDeRastreio
 import com.boxpace.domain.Evento
 import com.boxpace.domain.RastrearEncomendaUseCase
@@ -11,26 +13,35 @@ import com.boxpace.domain.Transportadora
 import com.boxpace.domain.ValidadorDeCodigo
 import java.time.Instant
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel do fluxo de adicionar encomenda (Story 1.3).
+ * ViewModel do fluxo de adicionar encomenda (Story 1.3) + espelho local (1.6).
  *
  * Fluxo: validar no domínio (formato do código, etiqueta com trim, CPF/CNPJ de
- * J&T) → [RastrearEncomendaUseCase] → sucesso agrega em memória (topo, LWW por
- * `codigo + transportadora`) e fecha o dialog; falha preserva os campos com
+ * J&T) → [RastrearEncomendaUseCase] → sucesso persiste no [EncomendaRepository]
+ * (Room) de forma reativa e fecha o dialog; falha preserva os campos com
  * mensagem clara — nunca cria encomenda fantasma antes da busca.
+ *
+ * Estado vem reativamente do repositório ([encomendas]), com flows derivados
+ * [encomendasAtivas]/[encomendasFechadas]/[detalhe]. Mutações escrevem no Room e
+ * registram [DeltaPendente] (espelho para o Epic 5 / Drive).
  *
  * Regras de dado sensível (AD-DADO-SENSIVEL): CPF digitado mascarado na UI
  * (ver `AdicionarEncomendaDialog`), sanitizado de `-`/`.`/`/`, nunca logado.
  */
 class AdicionarEncomendaViewModel(
     private val rastrear: RastrearEncomendaUseCase,
+    private val repository: EncomendaRepository,
     private val agora: () -> String = { Instant.now().toString() },
 ) : ViewModel() {
 
@@ -50,11 +61,33 @@ class AdicionarEncomendaViewModel(
     private val _form = MutableStateFlow(Form())
     val form: StateFlow<Form> = _form.asStateFlow()
 
-    private val _encomendas = MutableStateFlow<List<Encomenda>>(emptyList())
-    val encomendas: StateFlow<List<Encomenda>> = _encomendas.asStateFlow()
+    /** Todas as encomendas persistidas, observadas reativamente do Room. */
+    val encomendas: StateFlow<List<Encomenda>> = repository.observar()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Filtro derivado: ativas (`fechadaEm == null`). */
+    val encomendasAtivas: StateFlow<List<Encomenda>> = encomendas
+        .map { lista -> lista.filter { it.fechadaEm == null } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Filtro derivado: fechadas (`fechadaEm != null`). */
+    val encomendasFechadas: StateFlow<List<Encomenda>> = encomendas
+        .map { lista -> lista.filter { it.fechadaEm != null } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Encomenda pelo id observada reativamente, ou `null` se não existir. */
+    fun detalhe(id: String): Flow<Encomenda?> = encomendas.map { lista ->
+        lista.firstOrNull { it.id == id }
+    }
 
     private val _eventos = Channel<UiEvent>(Channel.BUFFERED)
     val eventos = _eventos.receiveAsFlow()
+
+    init {
+        viewModelScope.launch {
+            repository.purgarFechadasAntigas(PURGA_DIAS)
+        }
+    }
 
     fun codigoMudou(valor: String) = _form.update { it.copy(codigo = valor, erro = null) }
 
@@ -101,7 +134,7 @@ class AdicionarEncomendaViewModel(
                                 cpf = cpf,
                                 eventos = resultado.eventos,
                             )
-                            agregar(encomenda)
+                            persistir(encomenda)
                             _form.value = Form()
                             _eventos.send(UiEvent.Fechar)
                         }
@@ -142,13 +175,20 @@ class AdicionarEncomendaViewModel(
         )
     }
 
-    /** LWW em memória por identidade `codigo + transportadora`; nova no topo. */
-    private fun agregar(encomenda: Encomenda) {
-        _encomendas.update { lista ->
-            val restante = lista.filterNot {
-                it.codigo == encomenda.codigo && it.transportadora == encomenda.transportadora
-            }
-            listOf(encomenda) + restante
+    /** Persiste no repositório (Room) e registra o delta de Salvar (LWW). */
+    private suspend fun persistir(encomenda: Encomenda) {
+        try {
+            val agoraIso = agora()
+            repository.salvar(encomenda)
+            repository.registrarDeltaPendente(
+                DeltaPendente.Salvar(
+                    encomenda = encomenda,
+                    alvoId = encomenda.id,
+                    criadoEm = agoraIso,
+                ),
+            )
+        } catch (_: Exception) {
+            // conservador: falha de escrita no Room não deve derrubar a coroutine
         }
     }
 
@@ -156,68 +196,69 @@ class AdicionarEncomendaViewModel(
     private fun sanitizarEtiqueta(etiqueta: String): String =
         etiqueta.replace("\\", "\\\\").replace("\"", "\\\"")
 
-    /** Filtra as encomendas ativas (`fechadaEm == null`). */
-    fun encomendasAtivas(): List<Encomenda> = _encomendas.value.filter { it.fechadaEm == null }
-
-    /** Filtra as encomendas fechadas (`fechadaEm != null`). */
-    fun encomendasFechadas(): List<Encomenda> = _encomendas.value.filter { it.fechadaEm != null }
-
-    /** Busca uma encomenda pelo id, ou `null` se não existir mais. */
-    fun buscarPorId(id: String): Encomenda? = _encomendas.value.firstOrNull { it.id == id }
-
     /** Arquiva: seta `fechadaEm = agora` (sai de Ativos, entra em Fechados). */
     fun arquivar(id: String) {
-        _encomendas.update { lista ->
-            lista.map { encomenda ->
-                if (encomenda.id == id && encomenda.fechadaEm == null) {
-                    encomenda.copy(fechadaEm = agora())
-                } else {
-                    encomenda
-                }
+        viewModelScope.launch {
+            try {
+                val atual = encomendas.value.firstOrNull { it.id == id } ?: return@launch
+                if (atual.fechadaEm != null) return@launch
+                persistir(atual.copy(fechadaEm = agora()))
+            } catch (_: Exception) {
+                // conservador: falha de escrita no Room não deve derrubar a coroutine
             }
         }
     }
 
     /** Reabre: `fechadaEm = null` e volta ao topo de Ativos com `atualizadaEm = agora`. */
     fun reabrir(id: String) {
-        _encomendas.update { lista ->
-            val alvo = lista.find { it.id == id && it.fechadaEm != null } ?: return@update lista
-            val restante = lista.filterNot { it.id == id }
-            listOf(alvo.copy(fechadaEm = null, atualizadaEm = agora())) + restante
+        viewModelScope.launch {
+            try {
+                val atual = encomendas.value.firstOrNull { it.id == id } ?: return@launch
+                if (atual.fechadaEm == null) return@launch
+                persistir(atual.copy(fechadaEm = null, atualizadaEm = agora()))
+            } catch (_: Exception) {
+                // conservador: falha de escrita no Room não deve derrubar a coroutine
+            }
         }
     }
 
-    /** Exclui: remove da lista (ativa ou fechada). */
+    /** Exclui: remove da lista (ativa ou fechada) + registra delta de Excluir. */
     fun excluir(id: String) {
-        _encomendas.update { lista -> lista.filterNot { it.id == id } }
+        viewModelScope.launch {
+            try {
+                repository.excluir(id)
+                repository.registrarDeltaPendente(DeltaPendente.Excluir(alvoId = id, criadoEm = agora()))
+            } catch (_: Exception) {
+                // conservador: falha de escrita no Room não deve derrubar a coroutine
+            }
+        }
     }
 
     /**
      * Revalida em background: rastreia de novo via use case e substitui os
      * eventos/`ultimoStatus`/`statusEntregue`/`atualizadaEm` in-place, desde que
      * o id ainda exista (race guard). Preserva `fechadaEm` atual; id inexistente
-     * (excluída) = no-op silencioso; erro mantém o cache atual.
+     * (excluída) = no-op silencioso; erro mantém o cache.
      */
     fun revalidar(id: String) {
-        val alvo = buscarPorId(id) ?: return
+        val alvo = encomendas.value.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
             try {
                 when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
                     is RastreioResult.Sucesso -> {
-                        _encomendas.update { lista ->
-                            lista.map { encomenda ->
-                                if (encomenda.id != id) return@map encomenda
-                                if (resultado.eventos.isEmpty() && encomenda.eventos.isNotEmpty()) return@map encomenda
-                                encomenda.copy(
-                                    ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
-                                    statusEntregue = resultado.eventos.any {
-                                        it.descricao.contains("entregue", ignoreCase = true)
-                                    },
-                                    eventos = resultado.eventos,
-                                    atualizadaEm = agora(),
-                                )
-                            }
-                        }
+                        val atual = encomendas.value.firstOrNull { it.id == id } ?: return@launch
+                        if (resultado.eventos.isEmpty() && atual.eventos.isNotEmpty()) return@launch
+                        repository.salvar(
+                            atual.copy(
+                                ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
+                                statusEntregue = resultado.eventos.any {
+                                    it.descricao.contains("entregue", ignoreCase = true)
+                                },
+                                eventos = resultado.eventos,
+                                atualizadaEm = agora(),
+                            ),
+                        )
+                        repository.purgarFechadasAntigas(PURGA_DIAS)
                     }
                     is RastreioResult.NaoImplementado -> Unit
                 }
@@ -228,6 +269,9 @@ class AdicionarEncomendaViewModel(
     }
 
     companion object {
+        /** Fechados com `fechadaEm` mais antigo que isso são purgados do Room. */
+        const val PURGA_DIAS = 90
+
         /**
          * Filtra a lista por [termo] usando substring case-insensitive em
          * etiqueta OU código. Lista original totalmente — sem dedup.

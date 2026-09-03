@@ -10,11 +10,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boxpace.data.di.DataModule
+import com.boxpace.domain.Encomenda
 import com.boxpace.domain.RastrearEncomendaUseCase
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
@@ -37,14 +39,17 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun BoxpaceApp() {
+    val context = LocalContext.current
     val viewModel: AdicionarEncomendaViewModel = viewModel {
         AdicionarEncomendaViewModel(
             rastrear = RastrearEncomendaUseCase(DataModule.provideEncomendaRemoteDataSource()),
+            repository = DataModule.provideEncomendaRepository(context),
         )
     }
 
-    val encomendas by viewModel.encomendas.collectAsState()
     val form by viewModel.form.collectAsState()
+    val encomendasAtivas by viewModel.encomendasAtivas.collectAsState()
+    val encomendasFechadas by viewModel.encomendasFechadas.collectAsState()
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
     var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -56,13 +61,14 @@ fun BoxpaceApp() {
         }
     }
 
-    // Revalida em background ao abrir a Detalhes.
-    val encomendaDetalhe = detalhesId?.let { viewModel.buscarPorId(it) }
-
-    // Se o id aponta para algo que não existe mais (ex.: excluída), volta à lista.
-    LaunchedEffect(detalhesId, encomendaDetalhe) {
-        if (detalhesId != null && encomendaDetalhe == null) {
-            detalhesId = null
+    // Encomenda em detalhe observada reativamente; volta à lista se somir.
+    var encomendaDetalhe by remember { mutableStateOf<Encomenda?>(null) }
+    LaunchedEffect(detalhesId) {
+        val id = detalhesId
+        if (id == null) {
+            encomendaDetalhe = null
+        } else {
+            viewModel.detalhe(id).collect { encomendaDetalhe = it }
         }
     }
     LaunchedEffect(detalhesId) {
@@ -71,19 +77,19 @@ fun BoxpaceApp() {
 
     if (encomendaDetalhe != null) {
         DetalhesScreen(
-            encomenda = encomendaDetalhe,
-            onArquivar = { viewModel.arquivar(detalhesId!!) },
-            onReabrir = { viewModel.reabrir(detalhesId!!) },
+            encomenda = encomendaDetalhe!!,
+            onArquivar = { detalhesId?.let { viewModel.arquivar(it) } },
+            onReabrir = { detalhesId?.let { viewModel.reabrir(it) } },
             onExcluir = {
-                viewModel.excluir(detalhesId!!)
+                detalhesId?.let { viewModel.excluir(it) }
                 detalhesId = null
             },
             onVoltar = { detalhesId = null },
         )
     } else {
         BoxpaceTabs(
-            encomendasAtivas = viewModel.encomendasAtivas(),
-            encomendasFechadas = viewModel.encomendasFechadas(),
+            encomendasAtivas = encomendasAtivas,
+            encomendasFechadas = encomendasFechadas,
             onAdicionar = { dialogAberto = true },
             onAbrirDetalhes = { detalhesId = it.id },
         )
