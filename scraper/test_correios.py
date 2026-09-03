@@ -47,6 +47,9 @@ class FakeSession:
             return FakeResponse(payload=self.resultado, invalid_json=self.invalid_json)
         return FakeResponse(content=b"imagem")
 
+    def close(self):
+        pass
+
 
 class NetFailSession:
     """Simula falha transitória de rede: `get` levanta por `max_raises` chamadas,
@@ -66,6 +69,9 @@ class NetFailSession:
             self.raises += 1
             raise OSError("tempo de conexão esgotado")
         return FakeResponse(payload=self.resultado)
+
+    def close(self):
+        pass
 
 
 def _request(**kw) -> RastrearRequest:

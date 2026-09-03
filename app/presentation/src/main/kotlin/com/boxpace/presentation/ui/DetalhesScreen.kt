@@ -33,8 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
-import java.time.Instant
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val Acento = Color(0xFFEE6E34)
@@ -200,13 +198,7 @@ private fun Node(ultimo: Boolean) {
 }
 
 private fun formatarDataHora(iso: String): String {
-    return try {
-        Instant.parse(iso)
-            .atZone(ZoneId.systemDefault())
-            .format(TipoDataHora)
-    } catch (_: Exception) {
-        iso
-    }
+    return parseZonedDateTime(iso)?.format(TipoDataHora) ?: iso
 }
 
 @Composable

@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 private val Acento = Color(0xFFEE6E34)
 private val TintaSobreAcento = Color(0xFF2B1000)
 private val VerdeSucesso = Color(0xFF1E7F4F)
+private val CinzaSemDados = Color(0xFF616161)
 
 /**
  * Aba **Ativos** (Story 1.4): lista em memória agregada pelo ViewModel, search
@@ -55,6 +57,8 @@ fun AtivosScreen(
     encomendas: List<Encomenda>,
     onAdicionar: () -> Unit,
     onAbrirDetalhes: (Encomenda) -> Unit,
+    onRepetir: (Encomenda) -> Unit = {},
+    onExcluir: (Encomenda) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var termo by rememberSaveable { mutableStateOf("") }
@@ -109,7 +113,12 @@ fun AtivosScreen(
                 else -> {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(filtradas, key = { it.id }) { encomenda ->
-                            EncomendaRow(encomenda, onClick = { onAbrirDetalhes(encomenda) })
+                            EncomendaRow(
+                                encomenda = encomenda,
+                                onClick = { onAbrirDetalhes(encomenda) },
+                                onRepetir = { onRepetir(encomenda) },
+                                onExcluir = { onExcluir(encomenda) },
+                            )
                         }
                     }
                 }
@@ -154,72 +163,43 @@ private fun LupaIcon(modifier: Modifier = Modifier) {
 private fun EncomendaRow(
     encomenda: Encomenda,
     onClick: () -> Unit,
+    onRepetir: (Encomenda) -> Unit,
+    onExcluir: (Encomenda) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val fontScale = LocalDensity.current.fontScale
     val empilha = fontScale >= 2.0f
+    val semDados = encomenda.eventos.isEmpty() &&
+        encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS
 
-    Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        if (empilha) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-            ) {
-                Text(
-                    text = encomenda.etiqueta,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = Int.MAX_VALUE,
-                )
-                Text(
-                    text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = Int.MAX_VALUE,
-                )
-                Spacer(Modifier.height(8.dp))
-                StatusBadge(encomenda)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = formatarHorario(encomenda.atualizadaEm),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    // etiqueta (título, sem truncar)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            if (empilha) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
                     Text(
                         text = encomenda.etiqueta,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = Int.MAX_VALUE,
                     )
-                    // meta: código + transportadora
                     Text(
                         text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = Int.MAX_VALUE,
                     )
-                }
-                // à direita: badge + horário
-                Column(horizontalAlignment = Alignment.End) {
+                    Spacer(Modifier.height(8.dp))
                     StatusBadge(encomenda)
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -228,6 +208,53 @@ private fun EncomendaRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            } else {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        // etiqueta (título, sem truncar)
+                        Text(
+                            text = encomenda.etiqueta,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = Int.MAX_VALUE,
+                        )
+                        // meta: código + transportadora
+                        Text(
+                            text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = Int.MAX_VALUE,
+                        )
+                    }
+                    // à direita: badge + horário
+                    Column(horizontalAlignment = Alignment.End) {
+                        StatusBadge(encomenda)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = formatarHorario(encomenda.atualizadaEm),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (semDados) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { onRepetir(encomenda) }) { Text("Repetir") }
+                TextButton(onClick = { onExcluir(encomenda) }) { Text("Excluir") }
             }
         }
     }
@@ -241,6 +268,8 @@ private fun StatusBadge(
     val badge = when {
         encomenda.statusEntregue -> BadgeSpec("Chegou!", "✓", VerdeSucesso, Color.White)
         encomenda.eventos.isNotEmpty() -> BadgeSpec("Em trânsito", "↗", Acento, TintaSobreAcento)
+        encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS ->
+            BadgeSpec("Sem dados", "!", CinzaSemDados, Color.White)
         else -> null
     }
 

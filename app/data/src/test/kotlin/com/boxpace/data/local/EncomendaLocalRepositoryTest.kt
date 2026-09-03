@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -40,7 +41,8 @@ class EncomendaLocalRepositoryTest {
         database.close()
     }
 
-    private fun repositorio(): EncomendaLocalRepository = EncomendaLocalRepository(database)
+    private fun repositorio(): EncomendaLocalRepository =
+        EncomendaLocalRepository(database, Json { ignoreUnknownKeys = true })
 
     private fun encomenda(
         codigo: String = "AA123456789BR",
@@ -192,5 +194,92 @@ class EncomendaLocalRepositoryTest {
         assertEquals(1, todas.size)
         assertEquals(2, todas.single().eventos.size)
         assertEquals("2026-09-02T12:00:00Z", todas.single().atualizadaEm)
+    }
+
+    @Test
+    fun REABRIR_VOLTA_AO_TOPO_atualizadaEm_mais_recente_ordena_primeiro() = runBlocking {
+        val repo = repositorio()
+        val fechada = encomenda("AA111111111BR", fechadaEm = "2026-09-01T12:00:00Z")
+        val ativa = encomenda("AA222222222BR")
+        repo.salvar(fechada)
+        repo.salvar(ativa)
+
+        val reaberta = fechada.copy(fechadaEm = null, atualizadaEm = "2026-09-10T12:00:00Z")
+        repo.salvar(reaberta)
+
+        assertEquals(
+            listOf("AA111111111BR", "AA222222222BR"),
+            repo.observar().first().map { it.codigo },
+        )
+        assertNull(repo.buscarPorId(reaberta.id)?.fechadaEm)
+    }
+
+    @Test
+    fun ROUND_TRIP_DELTA_salvar_paraJson_doJson_preserva_todos_os_campos() = runBlocking {
+        val repo = repositorio()
+        val enc = Encomenda(
+            id = "jt:888123456",
+            codigo = "888123456",
+            transportadora = Transportadora.JT,
+            etiqueta = "Fone de ouvido",
+            ultimoStatus = "Entregue",
+            statusEntregue = true,
+            eventos = listOf(
+                Evento(
+                    data = "2026-09-01T10:00:00Z",
+                    descricao = "Objeto postado",
+                    cidade = "Cuiabá",
+                    uf = "MT",
+                    unidade = "CTE CUIABA",
+                ),
+            ),
+            criadaEm = "2026-09-01T09:00:00Z",
+            atualizadaEm = "2026-09-02T12:00:00Z",
+            fechadaEm = "2026-09-03T12:00:00Z",
+            cpfDestinatario = "12345678909",
+            buscasSemEventos = 2,
+        )
+
+        repo.registrarDeltaPendente(
+            DeltaPendente.Salvar(encomenda = enc, alvoId = enc.id, criadoEm = "2026-09-03T12:30:00Z"),
+        )
+
+        val recuperado = (repo.listarDeltasPendentes().single() as DeltaPendente.Salvar).encomenda
+        assertEquals(enc, recuperado)
+    }
+
+    @Test
+    fun PARSING_DEFENSIVO_payload_corrompido_e_tipo_desconhecido_sao_ignorados_sem_quebrar() = runBlocking {
+        val repo = repositorio()
+        val dao = database.deltaPendenteDao()
+
+        dao.inserir(
+            DeltaPendenteEntity(alvoId = "jt:888123456", tipo = "salvar", criadoEm = "2026-09-01T10:00:00Z", payload = "{{{nao-e-json"),
+        )
+        dao.inserir(
+            DeltaPendenteEntity(alvoId = "x:1", tipo = "tipo-desconhecido", criadoEm = "2026-09-01T10:00:00Z", payload = null),
+        )
+        dao.inserir(
+            DeltaPendenteEntity(alvoId = "correios:AA222222222BR", tipo = "excluir", criadoEm = "2026-09-01T11:00:00Z", payload = null),
+        )
+
+        val deltas = repo.listarDeltasPendentes()
+
+        assertEquals(1, deltas.size)
+        val unico = deltas.single()
+        assertTrue(unico is DeltaPendente.Excluir)
+        assertEquals("correios:AA222222222BR", unico.alvoId)
+    }
+
+    @Test
+    fun CONTADOR_SEM_DADOS_round_trip_persiste_buscasSemEventos_no_room() = runBlocking {
+        val repo = repositorio()
+        val semDados = encomenda("AA111111111BR").copy(buscasSemEventos = 3)
+
+        repo.salvar(semDados)
+
+        assertEquals(3, repo.buscarPorCodigo("AA111111111BR", Transportadora.CORREIOS)?.buscasSemEventos)
+        assertEquals(3, repo.listar().single().buscasSemEventos)
+        assertEquals(3, repo.observar().first().single().buscasSemEventos)
     }
 }

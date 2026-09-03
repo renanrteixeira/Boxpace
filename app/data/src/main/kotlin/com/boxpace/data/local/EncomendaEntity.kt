@@ -25,6 +25,7 @@ data class EncomendaEntity(
     val atualizadaEm: String,
     val fechadaEm: String?,
     val cpfDestinatario: String?,
+    val buscasSemEventos: Int = 0,
 )
 
 /**

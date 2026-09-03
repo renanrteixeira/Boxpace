@@ -143,4 +143,36 @@ class EncomendaRemoteDataSourceImplTest {
             impl.rastrear("AA123456789BR", Transportadora.CORREIOS)
         }
     }
+
+    @Test
+    fun `cold start primeira tentativa falha e retentativa com timeout maior recupera`() = runTest {
+        var chamadas = 0
+        val engine = MockEngine { request ->
+            chamadas++
+            if (chamadas == 1) throw IOException("servidor dormindo") else
+                jsonResponse("""{"codigo":"AA123456789BR","eventos":[{"data":"2026-09-01T10:30:00","descricao":"Objeto postado"}]}""")
+        }
+        val impl = EncomendaRemoteDataSourceImpl(cliente(engine), baseUrl = "http://scraper")
+
+        val resultado = impl.rastrear("AA123456789BR", Transportadora.CORREIOS)
+
+        assertEquals(2, chamadas)
+        assertTrue(resultado is RastreioResult.Sucesso)
+        assertEquals("Objeto postado", (resultado as RastreioResult.Sucesso).eventos.single().descricao)
+    }
+
+    @Test
+    fun `cold start falha nas duas tentativas e vira sem conexao`() = runTest {
+        var chamadas = 0
+        val engine = MockEngine { request ->
+            chamadas++
+            throw IOException("servidor dormindo")
+        }
+        val impl = EncomendaRemoteDataSourceImpl(cliente(engine), baseUrl = "http://scraper")
+
+        assertFailsWith<ErroDeRastreio.SemConexao> {
+            impl.rastrear("AA123456789BR", Transportadora.CORREIOS)
+        }
+        assertEquals(2, chamadas)
+    }
 }

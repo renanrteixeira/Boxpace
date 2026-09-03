@@ -20,6 +20,7 @@ data class EncomendaPayloadDto(
     val fechadaEm: String?,
     val cpfDestinatario: String?,
     val eventos: List<EventoPayloadDto>,
+    val buscasSemEventos: Int = 0,
 )
 
 @Serializable
@@ -56,6 +57,7 @@ internal object EncomendaPayloadMapper {
                         unidade = it.unidade,
                     )
                 },
+                buscasSemEventos = encomenda.buscasSemEventos,
             ),
         )
 
@@ -75,6 +77,7 @@ internal object EncomendaPayloadMapper {
             atualizadaEm = dto.atualizadaEm,
             fechadaEm = dto.fechadaEm,
             cpfDestinatario = dto.cpfDestinatario,
+            buscasSemEventos = dto.buscasSemEventos,
         )
     }
 }
