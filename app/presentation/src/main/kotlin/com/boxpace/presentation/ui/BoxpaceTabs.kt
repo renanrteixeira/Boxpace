@@ -40,6 +40,8 @@ fun BoxpaceTabs(
     encomendasFechadas: List<Encomenda>,
     onAdicionar: () -> Unit,
     onAbrirDetalhes: (Encomenda) -> Unit,
+    onRepetir: (Encomenda) -> Unit = {},
+    onExcluir: (Encomenda) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var aba by rememberSaveable { mutableStateOf(0) }
@@ -57,7 +59,13 @@ fun BoxpaceTabs(
         }
 
         when (aba) {
-            0 -> AtivosScreen(encomendas = encomendasAtivas, onAdicionar = onAdicionar, onAbrirDetalhes = onAbrirDetalhes)
+            0 -> AtivosScreen(
+                encomendas = encomendasAtivas,
+                onAdicionar = onAdicionar,
+                onAbrirDetalhes = onAbrirDetalhes,
+                onRepetir = onRepetir,
+                onExcluir = onExcluir,
+            )
             else -> FechadosScreen(encomendas = encomendasFechadas, onAbrirDetalhes = onAbrirDetalhes)
         }
     }

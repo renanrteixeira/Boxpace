@@ -11,8 +11,10 @@ import com.boxpace.domain.RastrearEncomendaUseCase
 import com.boxpace.domain.RastreioResult
 import com.boxpace.domain.Transportadora
 import com.boxpace.domain.ValidadorDeCodigo
+import com.boxpace.domain.ValidadorDeDocumento
 import java.time.Instant
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,6 +53,9 @@ class AdicionarEncomendaViewModel(
         val etiqueta: String = "",
         val cpf: String = "",
         val carregando: Boolean = false,
+        /** Depois de ~10s de busca (cold start do scraper), o plano B é aguardar
+         * até 30s: a UI troca a mensagem para "Aguardando o servidor acordar…". */
+        val aguardandoServidor: Boolean = false,
         val erro: String? = null,
     )
 
@@ -119,11 +124,17 @@ class AdicionarEncomendaViewModel(
             etiqueta.isEmpty() ->
                 _form.update { it.copy(erro = "Dá um nome pra essa encomenda") }
 
-            f.transportadora == Transportadora.JT && !cpfValido(cpf) ->
+            f.transportadora == Transportadora.JT && !ValidadorDeDocumento.documentoFiscalValido(cpf) ->
                 _form.update { it.copy(erro = "Confere o CPF do destinatário?") }
 
             else -> viewModelScope.launch {
-                _form.update { it.copy(carregando = true, erro = null) }
+                _form.update { it.copy(carregando = true, erro = null, aguardandoServidor = false) }
+                // Plano B (AC 1.3): se a busca passar de ~10s (cold start do
+                // scraper), a UI avisa que pode demorar até 30s na primeira vez.
+                val alertaAcordar = viewModelScope.launch {
+                    delay(TEMPO_ACORDAR_MS)
+                    _form.update { it.copy(aguardandoServidor = true) }
+                }
                 try {
                     when (val resultado = rastrear.executar(codigo, f.transportadora, cpf)) {
                         is RastreioResult.Sucesso -> {
@@ -134,23 +145,26 @@ class AdicionarEncomendaViewModel(
                                 cpf = cpf,
                                 eventos = resultado.eventos,
                             )
-                            persistir(encomenda)
-                            _form.value = Form()
-                            _eventos.send(UiEvent.Fechar)
+                            if (persistir(encomenda)) {
+                                _form.value = Form()
+                                _eventos.send(UiEvent.Fechar)
+                            } else {
+                                _form.update { it.copy(carregando = false, aguardandoServidor = false, erro = "Não deu pra salvar agora. Tente de novo.") }
+                            }
                         }
                         is RastreioResult.NaoImplementado ->
-                            _form.update { it.copy(carregando = false, erro = "Provedor não disponível.") }
+                            _form.update { it.copy(carregando = false, aguardandoServidor = false, erro = "Provedor não disponível.") }
                     }
                 } catch (e: ErroDeRastreio) {
-                    _form.update { it.copy(carregando = false, erro = e.mensagem) }
+                    _form.update { it.copy(carregando = false, aguardandoServidor = false, erro = e.mensagem) }
                 } catch (e: Exception) {
-                    _form.update { it.copy(carregando = false, erro = "Não deu pra adicionar agora. Tente de novo.") }
+                    _form.update { it.copy(carregando = false, aguardandoServidor = false, erro = "Não deu pra adicionar agora. Tente de novo.") }
+                } finally {
+                    alertaAcordar.cancel()
                 }
             }
         }
     }
-
-    private fun cpfValido(cpf: String?): Boolean = cpf?.length == 11 || cpf?.length == 14
 
     private fun montarEncomenda(
         codigo: String,
@@ -172,12 +186,15 @@ class AdicionarEncomendaViewModel(
             atualizadaEm = agoraIso,
             fechadaEm = null,
             cpfDestinatario = cpf,
+            // A primeira busca conta como 1: se não houver eventos, já inicia o
+            // caminho pro badge "Sem dados"; se houver, zera.
+            buscasSemEventos = if (eventos.isEmpty()) 1 else 0,
         )
     }
 
-    /** Persiste no repositório (Room) e registra o delta de Salvar (LWW). */
-    private suspend fun persistir(encomenda: Encomenda) {
-        try {
+    /** Persiste no repositório (Room) e registra o delta de Salvar (LWW). Retorna `false` se a escrita falhar. */
+    private suspend fun persistir(encomenda: Encomenda): Boolean {
+        return try {
             val agoraIso = agora()
             repository.salvar(encomenda)
             repository.registrarDeltaPendente(
@@ -187,8 +204,10 @@ class AdicionarEncomendaViewModel(
                     criadoEm = agoraIso,
                 ),
             )
+            true
         } catch (_: Exception) {
             // conservador: falha de escrita no Room não deve derrubar a coroutine
+            false
         }
     }
 
@@ -256,6 +275,13 @@ class AdicionarEncomendaViewModel(
                                 },
                                 eventos = resultado.eventos,
                                 atualizadaEm = agora(),
+                                // Sem eventos: conta mais uma busca pra chegar ao badge
+                                // "Sem dados"; com eventos, volta a zero.
+                                buscasSemEventos = if (resultado.eventos.isEmpty()) {
+                                    atual.buscasSemEventos + 1
+                                } else {
+                                    0
+                                },
                             ),
                         )
                         repository.purgarFechadasAntigas(PURGA_DIAS)
@@ -268,9 +294,22 @@ class AdicionarEncomendaViewModel(
         }
     }
 
+    /** "Repetir" do badge "Sem dados": refaz uma busca (mesmo fluxo de [revalidar]). */
+    fun repetirBusca(id: String) = revalidar(id)
+
+    /** Badge "Sem dados" (AC 1.3): sem eventos há pelo menos [SEM_DADOS_BUSCAS] buscas. */
+    fun semDados(encomenda: Encomenda): Boolean =
+        encomenda.eventos.isEmpty() && encomenda.buscasSemEventos >= SEM_DADOS_BUSCAS
+
     companion object {
         /** Fechados com `fechadaEm` mais antigo que isso são purgados do Room. */
         const val PURGA_DIAS = 90
+
+        /** Depois desse tempo de busca sem resposta, assume-se cold start do scraper. */
+        const val TEMPO_ACORDAR_MS = 10_000L
+
+        /** Buscas consecutivas sem eventos até aparecer o badge "Sem dados" (1 inicial + 2 refresh). */
+        const val SEM_DADOS_BUSCAS = 3
 
         /**
          * Filtra a lista por [termo] usando substring case-insensitive em

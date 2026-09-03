@@ -25,6 +25,20 @@ class FormatExtTest {
     }
 
     @Test
+    fun `formatarHorario aceita ISO naive sem offset como vi do scraper`() {
+        val resultado = formatarHorario("2026-09-01T10:00:00")
+        assertEquals(5, resultado.length)
+        val partes = resultado.split(":")
+        assertEquals(2, partes.size)
+    }
+
+    @Test
+    fun `formatarHorario naive com fracao de segundo e aceito`() {
+        val resultado = formatarHorario("2026-09-01T10:00:00.000000")
+        assertEquals(5, resultado.length)
+    }
+
+    @Test
     fun `nomeExibicao CORREIOS retorna Correios`() {
         assertEquals("Correios", Transportadora.CORREIOS.nomeExibicao())
     }

@@ -58,7 +58,11 @@ class AdicionarEncomendaViewModelTest {
 
         override fun observar(): Flow<List<Encomenda>> = state
 
+        /** Se `true`, `salvar` falha (simula erro de escrita no Room). */
+        var falharEmSalvar = false
+
         override suspend fun salvar(encomenda: Encomenda) {
+            if (falharEmSalvar) throw RuntimeException("write failed")
             state.value = listOf(encomenda) + state.value.filterNot { it.id == encomenda.id }
         }
 
@@ -148,6 +152,39 @@ class AdicionarEncomendaViewModelTest {
         assertNull(vm.form.value.erro)
         assertFalse(vm.form.value.carregando)
         assertEquals(AdicionarEncomendaViewModel.UiEvent.Fechar, vm.eventos.first())
+    }
+
+    @Test
+    fun `falha de persistencia mantem dialog aberto com erro e nao fecha`() = runTest {
+        remote.resultado = { _, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = "AA123456789BR",
+                eventos = listOf(Evento(data = "2026-09-01T10:00:00", descricao = "Objeto postado")),
+            )
+        }
+        repo.falharEmSalvar = true
+        val vm = criarVm()
+        preencherCorreios(vm)
+
+        vm.adicionar()
+
+        assertTrue(vm.encomendas.value.isEmpty())
+        assertEquals("Não deu pra salvar agora. Tente de novo.", vm.form.value.erro)
+        assertFalse(vm.form.value.carregando)
+        assertEquals("Fone de ouvido", vm.form.value.etiqueta)
+    }
+
+    @Test
+    fun `aguardandoServidor comeca falso e zera apos sucesso`() = runTest {
+        val vm = criarVm()
+        assertFalse(vm.form.value.aguardandoServidor)
+
+        preencherCorreios(vm)
+        vm.adicionar()
+
+        assertTrue(vm.encomendas.value.isNotEmpty())
+        assertFalse(vm.form.value.carregando)
+        assertFalse(vm.form.value.aguardandoServidor)
     }
 
     @Test
@@ -572,5 +609,74 @@ class AdicionarEncomendaViewModelTest {
         testScheduler.advanceUntilIdle()
 
         assertEquals(chamadasAntes + 1, repo.chamadasPurga)
+    }
+
+    @Test
+    fun `adicionar sem eventos inicia contador em 1 e com eventos em 0`() = runTest {
+        val vm = criarVm()
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        vm.codigoMudou("AA111111111BR")
+        vm.etiquetaMudou("Um")
+        vm.adicionar()
+        assertEquals(1, vm.encomendas.value.single().buscasSemEventos)
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto postado")))
+        }
+        vm.codigoMudou("AA222222222BR")
+        vm.etiquetaMudou("Dois")
+        vm.adicionar()
+        assertEquals(0, vm.encomendas.value.first { it.codigo == "AA222222222BR" }.buscasSemEventos)
+    }
+
+    @Test
+    fun `revalidar sem eventos incrementa e zera quando aparecem eventos`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        assertEquals(1, vm.encomendas.value.single().buscasSemEventos)
+
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, vm.encomendas.value.single().buscasSemEventos)
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto postado")))
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+        assertEquals(0, vm.encomendas.value.single().buscasSemEventos)
+    }
+
+    @Test
+    fun `semDados sinaliza somente a partir de 3 buscas sem eventos`() = runTest {
+        val vm = criarVm()
+        val semEventos = Encomenda(
+            id = "correios:X",
+            codigo = "X",
+            transportadora = Transportadora.CORREIOS,
+            etiqueta = "Algo",
+            criadaEm = "2026-09-01T10:00:00Z",
+            atualizadaEm = "2026-09-01T10:00:00Z",
+            buscasSemEventos = 2,
+        )
+        assertFalse(vm.semDados(semEventos))
+        assertTrue(vm.semDados(semEventos.copy(buscasSemEventos = 3)))
+        assertFalse(vm.semDados(semEventos.copy(buscasSemEventos = 3, eventos = listOf(Evento("2026-09-01T10:00:00", "x")))))
+    }
+
+    @Test
+    fun `repetirBusca refaz a busca e incrementa o contador sem eventos`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        val chamadasAntes = remote.chamadas
+
+        vm.repetirBusca(id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(chamadasAntes + 1, remote.chamadas)
+        assertEquals(2, vm.encomendas.value.single().buscasSemEventos)
     }
 }

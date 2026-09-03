@@ -92,6 +92,8 @@ fun BoxpaceApp() {
             encomendasFechadas = encomendasFechadas,
             onAdicionar = { dialogAberto = true },
             onAbrirDetalhes = { detalhesId = it.id },
+            onRepetir = { viewModel.repetirBusca(it.id) },
+            onExcluir = { viewModel.excluir(it.id) },
         )
     }
 
