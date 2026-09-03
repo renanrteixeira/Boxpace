@@ -68,7 +68,7 @@ object DataModule {
         val db = database ?: synchronized(this) {
             database ?: EncomendaDatabase.criar(context.applicationContext).also { database = it }
         }
-        return EncomendaLocalRepository(db)
+        return EncomendaLocalRepository(db, json)
     }
 
     fun provideHttpClient(): HttpClient = httpClient

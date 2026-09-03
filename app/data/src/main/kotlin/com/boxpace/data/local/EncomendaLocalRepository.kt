@@ -1,7 +1,6 @@
 package com.boxpace.data.local
 
 import androidx.room.withTransaction
-import com.boxpace.data.di.DataModule
 import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRepository
@@ -18,10 +17,12 @@ import kotlinx.serialization.json.Json
  * encomendas rastreadas + deltas pendentes para o Epic 5 (Drive).
  *
  * Mappers entidade↔domínio vivem `data/local`; o domínio não conhece Room.
+ * O [json] é injetado (não lido de `DataModule`) para manter o repositório
+ * testável com um `Json` próprio.
  */
 class EncomendaLocalRepository(
     private val database: EncomendaDatabase,
-    private val json: Json = DataModule.json,
+    private val json: Json,
 ) : EncomendaRepository {
 
     private val dao = database.encomendaDao()
@@ -81,18 +82,24 @@ class EncomendaLocalRepository(
     }
 
     override suspend fun listarDeltasPendentes(): List<DeltaPendente> =
-        deltaDao.listar().map { entidade ->
+        deltaDao.listar().mapNotNull { entidade ->
             when (entidade.tipo) {
-                TIPO_SALVAR -> DeltaPendente.Salvar(
-                    encomenda = EncomendaPayloadMapper
-                        .doJson(entidade.payload ?: "", json),
+                TIPO_SALVAR -> try {
+                    DeltaPendente.Salvar(
+                        encomenda = EncomendaPayloadMapper
+                            .doJson(entidade.payload ?: "", json),
+                        alvoId = entidade.alvoId,
+                        criadoEm = entidade.criadoEm,
+                    )
+                } catch (_: Exception) {
+                    // delta de Salvar corrompido/ilegível: ignora (não derruba o sync)
+                    null
+                }
+                TIPO_EXCLUIR -> DeltaPendente.Excluir(
                     alvoId = entidade.alvoId,
                     criadoEm = entidade.criadoEm,
                 )
-                else -> DeltaPendente.Excluir(
-                    alvoId = entidade.alvoId,
-                    criadoEm = entidade.criadoEm,
-                )
+                else -> null // tipo desconhecido: ignora em vez de classificar como Excluir
             }
         }
 
@@ -118,6 +125,7 @@ class EncomendaLocalRepository(
         atualizadaEm = atualizadaEm,
         fechadaEm = fechadaEm,
         cpfDestinatario = cpfDestinatario,
+        buscasSemEventos = buscasSemEventos,
     )
 
     private fun EncomendaEntity.paraDominio(eventos: List<EventoEntity> = emptyList()): Encomenda = Encomenda(
@@ -132,6 +140,7 @@ class EncomendaLocalRepository(
         atualizadaEm = atualizadaEm,
         fechadaEm = fechadaEm,
         cpfDestinatario = cpfDestinatario,
+        buscasSemEventos = buscasSemEventos,
     )
 
     private fun EncomendaComEventos.paraDominio(): Encomenda =
