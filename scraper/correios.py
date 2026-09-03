@@ -94,48 +94,51 @@ def _is_captcha_error(dados) -> bool:
 def _rastrear_sync(codigo: str) -> dict:
     """Executa o fluxo de scraping com retry de CAPTCHA/rede."""
     sessao = _nova_sessao()
-    motivo = "rede"
+    try:
+        motivo = "rede"
 
-    for _ in range(MAX_RETRIES):
-        try:
-            imagem = _fetch_captcha(sessao)
-            captcha_text = _solve_captcha(imagem)
-        except (CaptchaEsgotadoError, ObjetoNaoEncontradoError, RespostaInvalidaError, SolverIndisponivelError):
-            raise
-        except Exception:
-            # Falha transitória de rede/HTTP — só a rede vale nova tentativa.
-            motivo = "rede"
-            continue
+        for _ in range(MAX_RETRIES):
+            try:
+                imagem = _fetch_captcha(sessao)
+                captcha_text = _solve_captcha(imagem)
+            except (CaptchaEsgotadoError, ObjetoNaoEncontradoError, RespostaInvalidaError, SolverIndisponivelError):
+                raise
+            except Exception:
+                # Falha transitória de rede/HTTP — só a rede vale nova tentativa.
+                motivo = "rede"
+                continue
 
-        try:
-            resposta = sessao.get(
-                f"{_BASE_URL}/resultado.php",
-                params={"objeto": codigo, "captcha": captcha_text, "mqs": "S"},
-                headers=_HEADERS,
-                timeout=_TIMEOUT,
-            )
-            resposta.raise_for_status()
-        except Exception:
-            motivo = "rede"
-            continue
+            try:
+                resposta = sessao.get(
+                    f"{_BASE_URL}/resultado.php",
+                    params={"objeto": codigo, "captcha": captcha_text, "mqs": "S"},
+                    headers=_HEADERS,
+                    timeout=_TIMEOUT,
+                )
+                resposta.raise_for_status()
+            except Exception:
+                motivo = "rede"
+                continue
 
-        try:
-            dados = resposta.json()
-        except ValueError:
-            raise RespostaInvalidaError() from None
+            try:
+                dados = resposta.json()
+            except ValueError:
+                raise RespostaInvalidaError() from None
 
-        if _is_captcha_error(dados):
-            motivo = "captcha"
-            continue
-        if dados.get("erro"):
-            raise ObjetoNaoEncontradoError()
-        if not isinstance(dados, dict) or not isinstance(dados.get("eventos"), list):
-            raise RespostaInvalidaError()
-        return dados
+            if _is_captcha_error(dados):
+                motivo = "captcha"
+                continue
+            if dados.get("erro"):
+                raise ObjetoNaoEncontradoError()
+            if not isinstance(dados, dict) or not isinstance(dados.get("eventos"), list):
+                raise RespostaInvalidaError()
+            return dados
 
-    if motivo == "captcha":
-        raise CaptchaEsgotadoError()
-    raise RespostaInvalidaError(f"Não foi possível consultar os Correios após {MAX_RETRIES} tentativas.")
+        if motivo == "captcha":
+            raise CaptchaEsgotadoError()
+        raise RespostaInvalidaError(f"Não foi possível consultar os Correios após {MAX_RETRIES} tentativas.")
+    finally:
+        sessao.close()
 
 
 def _normalizar_data(item: dict) -> str:
