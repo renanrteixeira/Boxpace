@@ -1,5 +1,7 @@
 package com.boxpace.domain
 
+import kotlinx.coroutines.flow.Flow
+
 /**
  * Porta de saída para persistir e consultar [Encomenda].
  *
@@ -14,4 +16,14 @@ interface EncomendaRepository {
     suspend fun listarAtivas(): List<Encomenda>
     suspend fun listarFechadas(): List<Encomenda>
     suspend fun excluir(id: String)
+
+    /** Observa reativamente todas as encomendas persistidas (Room emite). */
+    fun observar(): Flow<List<Encomenda>>
+
+    suspend fun registrarDeltaPendente(delta: DeltaPendente)
+    suspend fun listarDeltasPendentes(): List<DeltaPendente>
+    suspend fun limparDeltasPendentes()
+
+    /** Apaga do armazenamento local Fechados com `fechadaEm` mais antigo que [dias]. */
+    suspend fun purgarFechadasAntigas(dias: Int)
 }

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Regras de extração de dados (API 31+). O CPF do destinatário é dado pessoal
+  sensível (LGPD/AD-DADO-SENSIVEL) e vive no banco Room `boxpace.db`; excluímos
+  o banco (e os sidecars `-wal`/`-shm`, que podem guardar dado não
+  checkpointed) do backup/transferência de dados para não vazar dado sensível.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude
+            domain="database"
+            path="boxpace.db" />
+        <exclude
+            domain="database"
+            path="boxpace.db-wal" />
+        <exclude
+            domain="database"
+            path="boxpace.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude
+            domain="database"
+            path="boxpace.db" />
+        <exclude
+            domain="database"
+            path="boxpace.db-wal" />
+        <exclude
+            domain="database"
+            path="boxpace.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

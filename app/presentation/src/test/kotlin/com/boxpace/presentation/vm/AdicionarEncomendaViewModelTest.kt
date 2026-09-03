@@ -1,7 +1,9 @@
 package com.boxpace.presentation.vm
 
+import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRemoteDataSource
+import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.ErroDeRastreio
 import com.boxpace.domain.Evento
 import com.boxpace.domain.RastrearEncomendaUseCase
@@ -9,7 +11,11 @@ import com.boxpace.domain.RastreioResult
 import com.boxpace.domain.Transportadora
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -44,12 +50,56 @@ class AdicionarEncomendaViewModelTest {
         }
     }
 
+    /** Fake do repositório espelhando Room: `observar()` é um `MutableStateFlow`. */
+    class RepositorioFake : EncomendaRepository {
+        private val state = MutableStateFlow<List<Encomenda>>(emptyList())
+        val deltas = mutableListOf<DeltaPendente>()
+        var chamadasPurga = 0
+
+        override fun observar(): Flow<List<Encomenda>> = state
+
+        override suspend fun salvar(encomenda: Encomenda) {
+            state.value = listOf(encomenda) + state.value.filterNot { it.id == encomenda.id }
+        }
+
+        override suspend fun buscarPorId(id: String): Encomenda? = state.value.firstOrNull { it.id == id }
+
+        override suspend fun buscarPorCodigo(codigo: String, transportadora: Transportadora): Encomenda? =
+            state.value.firstOrNull { it.codigo == codigo && it.transportadora == transportadora }
+
+        override suspend fun listar(): List<Encomenda> = state.value
+
+        override suspend fun listarAtivas(): List<Encomenda> = state.value.filter { it.fechadaEm == null }
+
+        override suspend fun listarFechadas(): List<Encomenda> = state.value.filter { it.fechadaEm != null }
+
+        override suspend fun excluir(id: String) {
+            state.value = state.value.filterNot { it.id == id }
+        }
+
+        override suspend fun registrarDeltaPendente(delta: DeltaPendente) {
+            deltas += delta
+        }
+
+        override suspend fun listarDeltasPendentes(): List<DeltaPendente> = deltas
+
+        override suspend fun limparDeltasPendentes() {
+            deltas.clear()
+        }
+
+        override suspend fun purgarFechadasAntigas(dias: Int) {
+            chamadasPurga++
+        }
+    }
+
     private lateinit var remote: RemoteStub
+    private lateinit var repo: RepositorioFake
 
     @BeforeTest
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         remote = RemoteStub()
+        repo = RepositorioFake()
     }
 
     @AfterTest
@@ -57,8 +107,18 @@ class AdicionarEncomendaViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel(): AdicionarEncomendaViewModel =
-        AdicionarEncomendaViewModel(rastrear = RastrearEncomendaUseCase(remote), agora = { "2026-09-01T12:00:00Z" })
+    /** Cria o VM e ativa a coleta dos flows derivados para o estado propagar. */
+    private fun TestScope.criarVm(): AdicionarEncomendaViewModel {
+        val vm = AdicionarEncomendaViewModel(
+            rastrear = RastrearEncomendaUseCase(remote),
+            repository = repo,
+            agora = { "2026-09-01T12:00:00Z" },
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.encomendas.collect { } }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.encomendasAtivas.collect { } }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.encomendasFechadas.collect { } }
+        return vm
+    }
 
     private fun preencherCorreios(vm: AdicionarEncomendaViewModel) {
         vm.codigoMudou("AA123456789BR")
@@ -75,7 +135,7 @@ class AdicionarEncomendaViewModelTest {
                 ),
             )
         }
-        val vm = viewModel()
+        val vm = criarVm()
         preencherCorreios(vm)
 
         vm.adicionar()
@@ -92,7 +152,7 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `codigo invalido bloqueia sem tocar a rede`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         vm.codigoMudou("AA123BR")
         vm.etiquetaMudou("Fone de ouvido")
 
@@ -105,7 +165,7 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `etiqueta vazia ou so espacos bloqueia sem tocar a rede`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         vm.codigoMudou("AA123456789BR")
         vm.etiquetaMudou("   ")
 
@@ -118,7 +178,7 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `jt sem cpf valido bloqueia com mensagem clara`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         vm.transportadoraMudou(Transportadora.JT)
         vm.codigoMudou("888123456")
         vm.etiquetaMudou("Fone de ouvido")
@@ -133,7 +193,7 @@ class AdicionarEncomendaViewModelTest {
     @Test
     fun `jt com cpf mascarado sanitiza e envia somente digitos`() = runTest {
         remote.resultado = { _, _, _ -> RastreioResult.Sucesso(codigo = "888123456", eventos = emptyList()) }
-        val vm = viewModel()
+        val vm = criarVm()
         vm.transportadoraMudou(Transportadora.JT)
         vm.codigoMudou("888123456")
         vm.etiquetaMudou("Fone de ouvido")
@@ -150,7 +210,7 @@ class AdicionarEncomendaViewModelTest {
     @Test
     fun `falha de rede preserva campos e nao cria fantasma`() = runTest {
         remote.resultado = { _, _, _ -> throw ErroDeRastreio.SemConexao() }
-        val vm = viewModel()
+        val vm = criarVm()
         preencherCorreios(vm)
 
         vm.adicionar()
@@ -164,7 +224,7 @@ class AdicionarEncomendaViewModelTest {
     @Test
     fun `falha generica usa mensagem neutra em vez de sem conexao`() = runTest {
         remote.resultado = { _, _, _ -> throw IllegalStateException("bug do provedor") }
-        val vm = viewModel()
+        val vm = criarVm()
         preencherCorreios(vm)
 
         vm.adicionar()
@@ -177,7 +237,7 @@ class AdicionarEncomendaViewModelTest {
     @Test
     fun `provedor nao implementado preserva campos e informa`() = runTest {
         remote.resultado = { _, transportadora, _ -> RastreioResult.NaoImplementado(transportadora) }
-        val vm = viewModel()
+        val vm = criarVm()
         vm.transportadoraMudou(Transportadora.JT)
         vm.codigoMudou("888123456")
         vm.etiquetaMudou("Fone de ouvido")
@@ -192,7 +252,7 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `re-adicionar mesma identidade atualiza e nao duplica`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         remote.resultado = { _, _, _ -> RastreioResult.Sucesso(codigo = "AA123456789BR", eventos = emptyList()) }
         preencherCorreios(vm)
         vm.adicionar()
@@ -218,7 +278,7 @@ class AdicionarEncomendaViewModelTest {
                 eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário")),
             )
         }
-        val vm = viewModel()
+        val vm = criarVm()
         preencherCorreios(vm)
 
         vm.adicionar()
@@ -228,7 +288,7 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `descartar limpa o formulario sem tocar a lista`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         preencherCorreios(vm)
 
         vm.descartar()
@@ -316,85 +376,92 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `ativas e fechadas derivadas por fechadaEm`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Ativa um")
         adicionarEncomenda(vm, "AA222222222BR", "Fecho esta")
 
-        val fecharId = vm.buscarPorId("correios:AA222222222BR")!!.id
-        vm.arquivar(fecharId)
+        val idFechada = vm.encomendas.value.first { it.codigo == "AA222222222BR" }.id
+        vm.arquivar(idFechada)
+        testScheduler.advanceUntilIdle()
 
-        assertEquals(1, vm.encomendasAtivas().size)
-        assertEquals("Ativa um", vm.encomendasAtivas().single().etiqueta)
-        assertEquals(1, vm.encomendasFechadas().size)
-        assertEquals("Fecho esta", vm.encomendasFechadas().single().etiqueta)
+        assertEquals(1, vm.encomendasAtivas.value.size)
+        assertEquals("Ativa um", vm.encomendasAtivas.value.single().etiqueta)
+        assertEquals(1, vm.encomendasFechadas.value.size)
+        assertEquals("Fecho esta", vm.encomendasFechadas.value.single().etiqueta)
     }
 
     @Test
     fun `arquivar seta fechadaEm e move para fechadas`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val id = vm.encomendas.value.single().id
 
         vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
 
-        assertNotNull(vm.buscarPorId(id)?.fechadaEm)
-        assertTrue(vm.encomendasAtivas().isEmpty())
-        assertEquals(1, vm.encomendasFechadas().size)
+        assertNotNull(vm.detalhe(id).first()?.fechadaEm)
+        assertTrue(vm.encomendasAtivas.value.isEmpty())
+        assertEquals(1, vm.encomendasFechadas.value.size)
     }
 
     @Test
     fun `reabrir volta ao topo de ativas com atualizadaEm agora`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
         adicionarEncomenda(vm, "AA222222222BR", "Dois")
-        val idReaberta = vm.buscarPorId("correios:AA222222222BR")!!.id
+        val idReaberta = vm.encomendas.value.first { it.codigo == "AA222222222BR" }.id
         vm.arquivar(idReaberta)
+        testScheduler.advanceUntilIdle()
 
         vm.reabrir(idReaberta)
+        testScheduler.advanceUntilIdle()
 
-        assertEquals(idReaberta, vm.encomendasAtivas().first().id)
-        assertEquals(2, vm.encomendasAtivas().size)
-        assertNull(vm.buscarPorId(idReaberta)?.fechadaEm)
-        assertEquals("2026-09-01T12:00:00Z", vm.buscarPorId(idReaberta)?.atualizadaEm)
-        assertTrue(vm.encomendasFechadas().isEmpty())
+        assertEquals(idReaberta, vm.encomendasAtivas.value.first().id)
+        assertEquals(2, vm.encomendasAtivas.value.size)
+        assertNull(vm.detalhe(idReaberta).first()?.fechadaEm)
+        assertEquals("2026-09-01T12:00:00Z", vm.detalhe(idReaberta).first()?.atualizadaEm)
+        assertTrue(vm.encomendasFechadas.value.isEmpty())
     }
 
     @Test
     fun `excluir ativa remove da lista`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val id = vm.encomendas.value.single().id
 
         vm.excluir(id)
+        testScheduler.advanceUntilIdle()
 
-        assertNull(vm.buscarPorId(id))
+        assertNull(vm.detalhe(id).first())
         assertTrue(vm.encomendas.value.isEmpty())
     }
 
     @Test
     fun `excluir fechada remove da lista`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val id = vm.encomendas.value.single().id
         vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
 
         vm.excluir(id)
 
-        assertNull(vm.buscarPorId(id))
+        assertNull(vm.detalhe(id).first())
         assertTrue(vm.encomendas.value.isEmpty())
     }
 
     @Test
     fun `revalidar sucesso atualiza eventos in place preservando fechadaEm`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T09:00:00", "Objeto postado")))
         }
         vm.codigoMudou("AA111111111BR")
         vm.etiquetaMudou("Um")
         vm.adicionar()
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val id = vm.encomendas.value.single().id
         vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
 
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
@@ -403,8 +470,9 @@ class AdicionarEncomendaViewModelTest {
             )
         }
         vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
 
-        val atualizada = vm.buscarPorId(id)!!
+        val atualizada = vm.detalhe(id).first()!!
         assertEquals("Objeto entregue ao destinatário", atualizada.ultimoStatus)
         assertEquals(1, atualizada.eventos.size)
         assertEquals("Objeto entregue ao destinatário", atualizada.eventos.single().descricao)
@@ -414,39 +482,95 @@ class AdicionarEncomendaViewModelTest {
 
     @Test
     fun `revalidar erro mantem cache`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
-        val antes = vm.buscarPorId(id)!!.atualizadaEm
+        val id = vm.encomendas.value.single().id
+        val antes = vm.detalhe(id).first()!!.atualizadaEm
 
         remote.resultado = { _, _, _ -> throw ErroDeRastreio.SemConexao() }
         vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
 
-        val depois = vm.buscarPorId(id)!!
+        val depois = vm.detalhe(id).first()!!
         assertEquals(antes, depois.atualizadaEm)
         assertTrue(depois.eventos.isEmpty())
     }
 
     @Test
     fun `revalidar id inexistente e no-op silencioso`() = runTest {
-        val vm = viewModel()
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
-        val id = vm.buscarPorId("correios:AA111111111BR")!!.id
+        val id = vm.encomendas.value.single().id
         val chamadasAntes = remote.chamadas
         vm.excluir(id)
+        testScheduler.advanceUntilIdle()
 
         vm.revalidar(id)
 
         assertEquals(chamadasAntes, remote.chamadas)
-        assertNull(vm.buscarPorId(id))
+        assertNull(vm.detalhe(id).first())
     }
 
     @Test
-    fun `buscarPorId retorna encomenda ou null`() = runTest {
-        val vm = viewModel()
+    fun `detalhe retorna encomenda ou null`() = runTest {
+        val vm = criarVm()
         adicionarEncomenda(vm, "AA111111111BR", "Um")
 
-        assertNotNull(vm.buscarPorId("correios:AA111111111BR"))
-        assertNull(vm.buscarPorId("correios:NAOEXISTE"))
+        assertNotNull(vm.detalhe("correios:AA111111111BR").first())
+        assertNull(vm.detalhe("correios:NAOEXISTE").first())
+    }
+
+    @Test
+    fun `adicionar registra delta de Salvar`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+
+        assertEquals(1, repo.deltas.size)
+        val delta = repo.deltas.single()
+        assertTrue(delta is DeltaPendente.Salvar)
+        assertEquals("correios:AA111111111BR", delta.alvoId)
+        assertEquals("2026-09-01T12:00:00Z", delta.criadoEm)
+    }
+
+    @Test
+    fun `arquivar reabrir e excluir registram deltas`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+
+        vm.arquivar(id)
+        testScheduler.advanceUntilIdle()
+        assertTrue(repo.deltas.last() is DeltaPendente.Salvar)
+        assertNotNull((repo.deltas.last() as DeltaPendente.Salvar).encomenda.fechadaEm)
+
+        vm.reabrir(id)
+        testScheduler.advanceUntilIdle()
+        assertTrue(repo.deltas.last() is DeltaPendente.Salvar)
+        assertNull((repo.deltas.last() as DeltaPendente.Salvar).encomenda.fechadaEm)
+
+        vm.excluir(id)
+        testScheduler.advanceUntilIdle()
+        assertEquals("correios:AA111111111BR", repo.deltas.last().alvoId)
+        assertTrue(repo.deltas.last() is DeltaPendente.Excluir)
+    }
+
+    @Test
+    fun `init purga fechadas antigas 90 dias`() = runTest {
+        criarVm()
+        assertEquals(1, repo.chamadasPurga)
+    }
+
+    @Test
+    fun `revalidar sucesso dispara purga apos`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val chamadasAntes = repo.chamadasPurga
+
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        val id = vm.encomendas.value.single().id
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(chamadasAntes + 1, repo.chamadasPurga)
     }
 }

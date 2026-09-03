@@ -1,7 +1,11 @@
 package com.boxpace.data.di
 
+import android.content.Context
+import com.boxpace.data.local.EncomendaDatabase
+import com.boxpace.data.local.EncomendaLocalRepository
 import com.boxpace.data.remote.EncomendaRemoteDataSourceImpl
 import com.boxpace.domain.EncomendaRemoteDataSource
+import com.boxpace.domain.EncomendaRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -10,8 +14,9 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 /**
- * Ponto de injeção de dependência da camada `data` — fiação básica do remote
- * (engine Ktor + base URL do scraper) para o `presentation` consumir.
+ * Ponto de injeção de dependência da camada `data` — fiação (engine Ktor +
+ * base URL do scraper, banco Room + repositório local) para o `presentation`
+ * consumir.
  *
  * Fonte canônica do contrato do scraper: a base URL aponta para o backend local
  * de scraping (via `10.0.2.2` no emulador Android); quando o scraper for
@@ -49,6 +54,21 @@ object DataModule {
             client = httpClient,
             baseUrl = BASE_URL,
         )
+    }
+
+    /** Banco Room único (singleton manual) — evita múltiplas conexões ao mesmo arquivo. */
+    @Volatile
+    private var database: EncomendaDatabase? = null
+
+    /**
+     * Repositório local (Room) — espelho persistido das encomendas. O banco é
+     * criado lazy a partir do [context] (application) na primeira chamada.
+     */
+    fun provideEncomendaRepository(context: Context): EncomendaRepository {
+        val db = database ?: synchronized(this) {
+            database ?: EncomendaDatabase.criar(context.applicationContext).also { database = it }
+        }
+        return EncomendaLocalRepository(db)
     }
 
     fun provideHttpClient(): HttpClient = httpClient
