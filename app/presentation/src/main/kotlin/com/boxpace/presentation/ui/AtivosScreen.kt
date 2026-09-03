@@ -3,6 +3,7 @@ package com.boxpace.presentation.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,16 +18,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +64,8 @@ fun AtivosScreen(
     encomendas: List<Encomenda>,
     onAdicionar: () -> Unit,
     onAbrirDetalhes: (Encomenda) -> Unit,
+    onArquivar: (Encomenda) -> Unit = {},
+    onReabrir: (Encomenda) -> Unit = {},
     onRepetir: (Encomenda) -> Unit = {},
     onExcluir: (Encomenda) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -116,6 +125,8 @@ fun AtivosScreen(
                             EncomendaRow(
                                 encomenda = encomenda,
                                 onClick = { onAbrirDetalhes(encomenda) },
+                                onArquivar = { onArquivar(encomenda) },
+                                onReabrir = { onReabrir(encomenda) },
                                 onRepetir = { onRepetir(encomenda) },
                                 onExcluir = { onExcluir(encomenda) },
                             )
@@ -160,9 +171,11 @@ private fun LupaIcon(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EncomendaRow(
+internal fun EncomendaRow(
     encomenda: Encomenda,
     onClick: () -> Unit,
+    onArquivar: (Encomenda) -> Unit,
+    onReabrir: (Encomenda) -> Unit,
     onRepetir: (Encomenda) -> Unit,
     onExcluir: (Encomenda) -> Unit,
     modifier: Modifier = Modifier,
@@ -172,91 +185,209 @@ private fun EncomendaRow(
     val semDados = encomenda.eventos.isEmpty() &&
         encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        ) {
-            if (empilha) {
-                Column(
+    // Swipe é atalho redundante (UX-DR7): dispara a mesma ação do menu ⋮.
+    // Arquiva quando ativa, reabre quando fechada. `onDismiss` dispara a ação
+    // após o gesto; a row sai da aba atual de forma reativa (o `onArquivar`/
+    // `onReabrir` move a encomenda para a outra aba).
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    SwipeToDismissBox(
+        state = dismissState,
+        onDismiss = {
+            if (encomenda.fechadaEm == null) onArquivar(encomenda) else onReabrir(encomenda)
+        },
+        backgroundContent = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Box(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        text = encomenda.etiqueta,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = Int.MAX_VALUE,
-                    )
-                    Text(
-                        text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = Int.MAX_VALUE,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    StatusBadge(encomenda)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = formatarHorario(encomenda.atualizadaEm),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = if (encomenda.fechadaEm == null) "Arquivar" else "Reabrir",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Acento,
                     )
                 }
-            } else {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        // etiqueta (título, sem truncar)
+            }
+        },
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                if (empilha) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
+                    ) {
                         Text(
                             text = encomenda.etiqueta,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = Int.MAX_VALUE,
                         )
-                        // meta: código + transportadora
                         Text(
                             text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = Int.MAX_VALUE,
                         )
-                    }
-                    // à direita: badge + horário
-                    Column(horizontalAlignment = Alignment.End) {
+                        Spacer(Modifier.height(8.dp))
                         StatusBadge(encomenda)
                         Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = formatarHorario(encomenda.atualizadaEm),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = formatarHorario(encomenda.atualizadaEm),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            RowMenu(
+                                encomenda = encomenda,
+                                onArquivar = onArquivar,
+                                onReabrir = onReabrir,
+                                onExcluir = onExcluir,
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            // etiqueta (título, sem truncar)
+                            Text(
+                                text = encomenda.etiqueta,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = Int.MAX_VALUE,
+                            )
+                            // meta: código + transportadora
+                            Text(
+                                text = "${encomenda.codigo} · ${encomenda.transportadora.nomeExibicao()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = Int.MAX_VALUE,
+                            )
+                        }
+                        // à direita: badge + horário
+                        Column(horizontalAlignment = Alignment.End) {
+                            StatusBadge(encomenda)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = formatarHorario(encomenda.atualizadaEm),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        RowMenu(
+                            encomenda = encomenda,
+                            onArquivar = onArquivar,
+                            onReabrir = onReabrir,
+                            onExcluir = onExcluir,
                         )
                     }
                 }
             }
-        }
 
-        if (semDados) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(onClick = { onRepetir(encomenda) }) { Text("Repetir") }
-                TextButton(onClick = { onExcluir(encomenda) }) { Text("Excluir") }
+            if (semDados && encomenda.fechadaEm == null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { onRepetir(encomenda) }) { Text("Repetir") }
+                    TextButton(onClick = { onExcluir(encomenda) }) { Text("Excluir") }
+                }
             }
         }
+    }
+}
+
+/**
+ * Menu `⋮` de ciclo de vida da linha (FR5): "Arquivar"/"Reabrir" conforme
+ * [Encomenda.estaFechada] + "Excluir". As ações tocáveis sempre estão presentes
+ * (UX-DR7, NFR12) — mesmo com o swipe disponível como atalho.
+ */
+@Composable
+private fun RowMenu(
+    encomenda: Encomenda,
+    onArquivar: (Encomenda) -> Unit,
+    onReabrir: (Encomenda) -> Unit,
+    onExcluir: (Encomenda) -> Unit,
+) {
+    var aberto by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { aberto = true }) {
+            MoreVertIcon()
+        }
+        DropdownMenu(
+            expanded = aberto,
+            onDismissRequest = { aberto = false },
+        ) {
+            if (encomenda.fechadaEm == null) {
+                DropdownMenuItem(
+                    text = { Text("Arquivar") },
+                    onClick = {
+                        aberto = false
+                        onArquivar(encomenda)
+                    },
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text("Reabrir") },
+                    onClick = {
+                        aberto = false
+                        onReabrir(encomenda)
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Excluir") },
+                onClick = {
+                    aberto = false
+                    onExcluir(encomenda)
+                },
+            )
+        }
+    }
+}
+
+/** Ícone `⋮` (mais opções) desenhado à mão, seguindo o padrão de [LupaIcon]. */
+@Composable
+private fun MoreVertIcon(modifier: Modifier = Modifier) {
+    val cor = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(
+        modifier
+            .size(24.dp)
+            .semantics { contentDescription = "Mais ações" },
+    ) {
+        val raio = size.minDimension * 0.10f
+        val cx = size.width / 2f
+        drawCircle(color = cor, radius = raio, center = Offset(cx, size.height * 0.25f))
+        drawCircle(color = cor, radius = raio, center = Offset(cx, size.height * 0.5f))
+        drawCircle(color = cor, radius = raio, center = Offset(cx, size.height * 0.75f))
     }
 }
 
