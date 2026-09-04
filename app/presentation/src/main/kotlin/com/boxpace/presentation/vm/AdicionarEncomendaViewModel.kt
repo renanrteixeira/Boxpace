@@ -12,6 +12,10 @@ import com.boxpace.domain.RastreioResult
 import com.boxpace.domain.Transportadora
 import com.boxpace.domain.ValidadorDeCodigo
 import com.boxpace.domain.ValidadorDeDocumento
+import com.boxpace.domain.RevalidarEncomendaUseCase
+import com.boxpace.domain.RegrasDeRetencao
+import com.boxpace.presentation.notificacao.Gates
+import com.boxpace.presentation.notificacao.RevalidacaoGate
 import java.time.Instant
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -45,6 +49,8 @@ class AdicionarEncomendaViewModel(
     private val rastrear: RastrearEncomendaUseCase,
     private val repository: EncomendaRepository,
     private val agora: () -> String = { Instant.now().toString() },
+    private val revalidarUseCase: RevalidarEncomendaUseCase = RevalidarEncomendaUseCase(repository, agora),
+    private val gate: RevalidacaoGate = Gates.revalidacao,
 ) : ViewModel() {
 
     data class Form(
@@ -262,48 +268,32 @@ class AdicionarEncomendaViewModel(
      * eventos/`ultimoStatus`/`statusEntregue`/`atualizadaEm` in-place, desde que
      * o id ainda exista (race guard). Preserva `fechadaEm` atual; id inexistente
      * (excluída) = no-op silencioso; erro mantém o cache.
+     *
+     * A regra de domínio (comparar `ultimoStatus`, migração Fechados, persist
+     * via `salvar` + `DeltaPendente`) vive no [RevalidarEncomendaUseCase]
+     * compartilhado com o worker de background (Story 3.1) — sem duplicação.
+     * A execução é guardada pelo [RevalidacaoGate] (mutex por `codigo`) comum ao
+     * worker, evitando fetch concorrente no mesmo `codigo` (CONCORRENCIA).
      */
     fun revalidar(id: String) {
         val alvo = encomendas.value.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
-            try {
-                when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
-                    is RastreioResult.Sucesso -> {
-                        val atual = encomendas.value.firstOrNull { it.id == id } ?: return@launch
-                        if (resultado.eventos.isEmpty() && atual.eventos.isNotEmpty()) return@launch
-                        val snapshot = atual.copy(
-                            ultimoStatus = resultado.eventos.lastOrNull()?.descricao,
-                            eventos = resultado.eventos,
-                            atualizadaEm = agora(),
-                            // Sem eventos: conta mais uma busca pra chegar ao badge
-                            // "Sem dados"; com eventos, volta a zero.
-                            buscasSemEventos = if (resultado.eventos.isEmpty()) {
-                                atual.buscasSemEventos + 1
-                            } else {
-                                0
-                            },
-                        )
-                        val entregue = snapshot.estaEntregue()
-                        val aPersistir = snapshot.copy(
-                            statusEntregue = entregue,
-                            // Migração automática (AD-6, AD-FECHADO): só quando a
-                            // encomenda não foi arquivada manualmente (`fechadaEm`
-                            // null) e o rastreio indica entrega. Não sobrescreve um
-                            // fechado manual.
-                            fechadaEm = if (!snapshot.estaFechada() && entregue) {
-                                agora()
-                            } else {
-                                snapshot.fechadaEm
-                            },
-                        )
-                        if (persistir(aPersistir)) {
-                            repository.purgarFechadasAntigas(PURGA_DIAS)
+            gate.comLock(id) {
+                try {
+                    when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
+                        is RastreioResult.Sucesso -> {
+                            val atual = encomendas.value.firstOrNull { it.id == id } ?: return@comLock
+                            when (val r = revalidarUseCase.executar(atual, resultado)) {
+                                is RevalidarEncomendaUseCase.Resultado.Sucesso ->
+                                    repository.purgarFechadasAntigas(PURGA_DIAS)
+                                else -> Unit
+                            }
                         }
+                        is RastreioResult.NaoImplementado -> Unit
                     }
-                    is RastreioResult.NaoImplementado -> Unit
+                } catch (_: Exception) {
+                    // conservador: mantém o cache atual
                 }
-            } catch (_: Exception) {
-                // conservador: mantém o cache atual
             }
         }
     }
@@ -316,8 +306,12 @@ class AdicionarEncomendaViewModel(
         encomenda.eventos.isEmpty() && encomenda.buscasSemEventos >= SEM_DADOS_BUSCAS
 
     companion object {
-        /** Fechados com `fechadaEm` mais antigo que isso são purgados do Room. */
-        const val PURGA_DIAS = 90
+        /**
+         * Fechados com `fechadaEm` mais antigo que isso são purgados do Room.
+         * Regra de domínio centralizada em [RegrasDeRetencao] — alias mantido para
+         * os call sites internos de `purgarFechadasAntigas`.
+         */
+        private val PURGA_DIAS: Int = RegrasDeRetencao.PURGA_DIAS
 
         /** Depois desse tempo de busca sem resposta, assume-se cold start do scraper. */
         const val TEMPO_ACORDAR_MS = 10_000L

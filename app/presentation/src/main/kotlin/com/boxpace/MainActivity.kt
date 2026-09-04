@@ -1,6 +1,8 @@
 package com.boxpace
 
+import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
@@ -18,27 +20,55 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boxpace.data.di.DataModule
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.RastrearEncomendaUseCase
+import com.boxpace.presentation.notificacao.NotificadorTransicao
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
+import com.boxpace.presentation.ui.ConfiguracoesScreen
 import com.boxpace.presentation.ui.DetalhesScreen
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.UiEvent
 
 class MainActivity : ComponentActivity() {
+    // Pedido de abertura vindo de deep link (notificação). O `selo` garante que
+    // toques repetidos na mesma encomenda recomponham (mesmo se o id não mudar).
+    private val comandoAbrir = mutableStateOf<ComandoAbrir?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        comandoAbrir.value = comandoDe(intent)
         setContent {
             MaterialTheme {
                 Surface {
-                    BoxpaceApp()
+                    BoxpaceApp(comandoAbrir = comandoAbrir.value)
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        comandoDe(intent)?.let { comandoAbrir.value = it }
+    }
+
+    private fun comandoDe(intent: Intent?): ComandoAbrir? =
+        extrairIdDeAbertura(intent)?.let { ComandoAbrir(it, SystemClock.elapsedRealtime()) }
 }
 
+/**
+ * Decodifica o deep link de abertura vindo da notificação (TOCAR_NOTIFICACAO):
+ * só produz um `id` quando a action é a de abrir detalhe e há `EXTRA_ID`.
+ * Função pura (testável) — sem CPF no extra (AD-DADO-SENSIVEL).
+ */
+internal fun extrairIdDeAbertura(intent: Intent?): String? =
+    intent
+        ?.takeIf { it.action == NotificadorTransicao.ACAO_ABRIR_DETALHE }
+        ?.getStringExtra(NotificadorTransicao.EXTRA_ID)
+
+internal data class ComandoAbrir(val id: String, val selo: Long)
+
 @Composable
-fun BoxpaceApp() {
+internal fun BoxpaceApp(comandoAbrir: ComandoAbrir? = null) {
     val context = LocalContext.current
     val viewModel: AdicionarEncomendaViewModel = viewModel {
         AdicionarEncomendaViewModel(
@@ -52,6 +82,7 @@ fun BoxpaceApp() {
     val encomendasFechadas by viewModel.encomendasFechadas.collectAsState()
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
     var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
+    var telaConfiguracoes by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.eventos.collect { evento ->
@@ -75,28 +106,44 @@ fun BoxpaceApp() {
         detalhesId?.let { viewModel.revalidar(it) }
     }
 
-    if (encomendaDetalhe != null) {
-        DetalhesScreen(
-            encomenda = encomendaDetalhe!!,
-            onArquivar = { detalhesId?.let { viewModel.arquivar(it) } },
-            onReabrir = { detalhesId?.let { viewModel.reabrir(it) } },
-            onExcluir = {
-                detalhesId?.let { viewModel.excluir(it) }
-                detalhesId = null
-            },
-            onVoltar = { detalhesId = null },
-        )
-    } else {
-        BoxpaceTabs(
-            encomendasAtivas = encomendasAtivas,
-            encomendasFechadas = encomendasFechadas,
-            onAdicionar = { dialogAberto = true },
-            onAbrirDetalhes = { detalhesId = it.id },
-            onArquivar = { viewModel.arquivar(it.id) },
-            onReabrir = { viewModel.reabrir(it.id) },
-            onRepetir = { viewModel.repetirBusca(it.id) },
-            onExcluir = { viewModel.excluir(it.id) },
-        )
+    // Deep link da notificação: abre a Detalhes (mesmo se já aberta) e revalida.
+    LaunchedEffect(comandoAbrir?.id, comandoAbrir?.selo) {
+        comandoAbrir?.let { comando ->
+            telaConfiguracoes = false
+            detalhesId = comando.id
+            viewModel.revalidar(comando.id)
+        }
+    }
+
+    when {
+        encomendaDetalhe != null -> {
+            DetalhesScreen(
+                encomenda = encomendaDetalhe!!,
+                onArquivar = { detalhesId?.let { viewModel.arquivar(it) } },
+                onReabrir = { detalhesId?.let { viewModel.reabrir(it) } },
+                onExcluir = {
+                    detalhesId?.let { viewModel.excluir(it) }
+                    detalhesId = null
+                },
+                onVoltar = { detalhesId = null },
+            )
+        }
+        telaConfiguracoes -> {
+            ConfiguracoesScreen(onVoltar = { telaConfiguracoes = false })
+        }
+        else -> {
+            BoxpaceTabs(
+                encomendasAtivas = encomendasAtivas,
+                encomendasFechadas = encomendasFechadas,
+                onAdicionar = { dialogAberto = true },
+                onAbrirDetalhes = { detalhesId = it.id },
+                onArquivar = { viewModel.arquivar(it.id) },
+                onReabrir = { viewModel.reabrir(it.id) },
+                onRepetir = { viewModel.repetirBusca(it.id) },
+                onExcluir = { viewModel.excluir(it.id) },
+                onAbrirConfiguracoes = { telaConfiguracoes = true },
+            )
+        }
     }
 
     if (dialogAberto) {
