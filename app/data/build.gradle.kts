@@ -40,6 +40,9 @@ dependencies {
 
     // Porta cloud (Drive) — esqueleto; OAuth em Epic 5.
 
+    // DataStore Preferences para chave-valor simples (ex.: tema).
+    implementation("androidx.datastore:datastore-preferences:1.1.4")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation(kotlin("test-junit5"))

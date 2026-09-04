@@ -34,10 +34,6 @@ import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
 import java.time.format.DateTimeFormatter
 
-private val Acento = Color(0xFFEE6E34)
-private val TintaSobreAcento = Color(0xFF2B1000)
-private val VerdeSucesso = Color(0xFF1E7F4F)
-
 private val TipoDataHora: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM HH:mm")
 
 /**
@@ -178,7 +174,7 @@ private fun TimelineItem(
 
 @Composable
 private fun Node(ultimo: Boolean) {
-    val cor = if (ultimo) Acento else MaterialTheme.colorScheme.outline
+    val cor = if (ultimo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
     Canvas(Modifier.size(12.dp)) {
         drawCircle(color = cor, radius = size.minDimension * 0.5f)
     }
@@ -194,8 +190,8 @@ private fun StatusBadge(
     modifier: Modifier = Modifier,
 ) {
     val badge = when {
-        encomenda.statusEntregue -> StatusBadgeSpec("Chegou!", "✓", VerdeSucesso, Color.White)
-        encomenda.eventos.isNotEmpty() -> StatusBadgeSpec("Em trânsito", "↗", Acento, TintaSobreAcento)
+        encomenda.statusEntregue -> StatusBadgeSpec("Chegou!", "✓", MaterialTheme.colorScheme.secondary, Color.White)
+        encomenda.eventos.isNotEmpty() -> StatusBadgeSpec("Em trânsito", "↗", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
         else -> null
     }
 

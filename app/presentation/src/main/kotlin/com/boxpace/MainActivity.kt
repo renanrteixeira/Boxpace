@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,8 +24,10 @@ import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
 import com.boxpace.presentation.ui.ConfiguracoesScreen
 import com.boxpace.presentation.ui.DetalhesScreen
+import com.boxpace.presentation.ui.theme.BoxpaceTheme
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.UiEvent
+import com.boxpace.presentation.vm.ConfiguracoesViewModel
 
 class MainActivity : ComponentActivity() {
     // Pedido de abertura vindo de deep link (notificação). O `selo` garante que
@@ -37,9 +38,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         comandoAbrir.value = comandoDe(intent)
         setContent {
-            MaterialTheme {
+            val configuracoesVm: ConfiguracoesViewModel = viewModel {
+                ConfiguracoesViewModel(
+                    preferenciasRepository = DataModule.providePreferenciasRepository(),
+                    encomendaRepository = DataModule.provideEncomendaRepository(applicationContext),
+                )
+            }
+            val tema by configuracoesVm.tema.collectAsState()
+            BoxpaceTheme(tema = tema) {
                 Surface {
-                    BoxpaceApp(comandoAbrir = comandoAbrir.value)
+                    BoxpaceApp(
+                        comandoAbrir = comandoAbrir.value,
+                        configuracoesVm = configuracoesVm,
+                    )
                 }
             }
         }
@@ -68,7 +79,10 @@ internal fun extrairIdDeAbertura(intent: Intent?): String? =
 internal data class ComandoAbrir(val id: String, val selo: Long)
 
 @Composable
-internal fun BoxpaceApp(comandoAbrir: ComandoAbrir? = null) {
+internal fun BoxpaceApp(
+    comandoAbrir: ComandoAbrir? = null,
+    configuracoesVm: ConfiguracoesViewModel,
+) {
     val context = LocalContext.current
     val viewModel: AdicionarEncomendaViewModel = viewModel {
         AdicionarEncomendaViewModel(
@@ -129,7 +143,10 @@ internal fun BoxpaceApp(comandoAbrir: ComandoAbrir? = null) {
             )
         }
         telaConfiguracoes -> {
-            ConfiguracoesScreen(onVoltar = { telaConfiguracoes = false })
+            ConfiguracoesScreen(
+                onVoltar = { telaConfiguracoes = false },
+                viewModel = configuracoesVm,
+            )
         }
         else -> {
             BoxpaceTabs(
