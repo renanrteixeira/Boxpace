@@ -68,6 +68,7 @@ fun AtivosScreen(
     onReabrir: (Encomenda) -> Unit = {},
     onRepetir: (Encomenda) -> Unit = {},
     onExcluir: (Encomenda) -> Unit = {},
+    onAbrirConfiguracoes: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var termo by rememberSaveable { mutableStateOf("") }
@@ -91,10 +92,18 @@ fun AtivosScreen(
                 .padding(innerPadding)
                 .padding(16.dp),
         ) {
-            Text(
-                text = "Encomendas",
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            Row(
+                Modifier
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Encomendas",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onAbrirConfiguracoes) { Text("Configurações") }
+            }
 
             Spacer(Modifier.height(12.dp))
 
