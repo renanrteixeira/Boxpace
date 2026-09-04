@@ -800,4 +800,51 @@ class AdicionarEncomendaViewModelTest {
         assertEquals(chamadasAntes + 1, remote.chamadas)
         assertEquals(2, vm.encomendas.value.single().buscasSemEventos)
     }
+
+    @Test
+    fun `revalidar auto-fecho registra delta Salvar com fechadaEm setado`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        val deltasAntes = repo.deltas.size
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(deltasAntes + 1, repo.deltas.size)
+        assertTrue(repo.deltas.last() is DeltaPendente.Salvar)
+        val delta = repo.deltas.last() as DeltaPendente.Salvar
+        assertEquals(id, delta.alvoId)
+        assertEquals("2026-09-01T12:00:00Z", delta.criadoEm)
+        assertNotNull(delta.encomenda.fechadaEm)
+    }
+
+    @Test
+    fun `revalidar sem auto-fecho persiste delta com fechadaEm inalterado`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Saiu para entrega")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        val atual = vm.detalhe(id).first()!!
+        assertFalse(atual.estaEntregue())
+        assertNull(atual.fechadaEm)
+        assertTrue(repo.deltas.last() is DeltaPendente.Salvar)
+        val ultimoDelta = repo.deltas.last() as DeltaPendente.Salvar
+        assertNull(ultimoDelta.encomenda.fechadaEm)
+    }
 }
