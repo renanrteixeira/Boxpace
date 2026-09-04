@@ -296,8 +296,9 @@ class AdicionarEncomendaViewModel(
                                 snapshot.fechadaEm
                             },
                         )
-                        repository.salvar(aPersistir)
-                        repository.purgarFechadasAntigas(PURGA_DIAS)
+                        if (persistir(aPersistir)) {
+                            repository.purgarFechadasAntigas(PURGA_DIAS)
+                        }
                     }
                     is RastreioResult.NaoImplementado -> Unit
                 }

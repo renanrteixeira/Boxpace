@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -189,7 +188,7 @@ internal fun EncomendaRow(
     // Confirmação leve (UX-DR5, FR6) antes de excluir — vale para os dois
     // gatilhos da row: o item "Excluir" do menu `⋮` e o botão "Excluir" do
     // badge "Sem dados".
-    var confirmandoExclusao by remember { mutableStateOf(false) }
+    var confirmandoExclusao by rememberSaveable { mutableStateOf(false) }
 
     // Swipe é atalho redundante (UX-DR7): dispara a mesma ação do menu ⋮.
     // Arquiva quando ativa, reabre quando fechada. `onDismiss` dispara a ação
@@ -329,26 +328,14 @@ internal fun EncomendaRow(
         }
     }
 
-    if (confirmandoExclusao) {
-        AlertDialog(
-            onDismissRequest = { confirmandoExclusao = false },
-            title = { Text("Excluir definitivamente?") },
-            text = {
-                Text("Essa encomenda será removida da sua lista. Não dá pra desfazer.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmandoExclusao = false
-                        onExcluir(encomenda)
-                    },
-                ) { Text("Excluir") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmandoExclusao = false }) { Text("Cancelar") }
-            },
-        )
-    }
+    ConfirmarExclusaoDialog(
+        mostrar = confirmandoExclusao,
+        aoCancelar = { confirmandoExclusao = false },
+        aoConfirmar = {
+            confirmandoExclusao = false
+            onExcluir(encomenda)
+        },
+    )
 }
 
 /**

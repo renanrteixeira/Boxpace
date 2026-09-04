@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -116,26 +115,14 @@ fun DetalhesScreen(
         }
     }
 
-    if (confirmandoExclusao) {
-        AlertDialog(
-            onDismissRequest = { confirmandoExclusao = false },
-            title = { Text("Excluir definitivamente?") },
-            text = {
-                Text("Essa encomenda será removida da sua lista. Não dá pra desfazer.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmandoExclusao = false
-                        onExcluir()
-                    },
-                ) { Text("Excluir") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmandoExclusao = false }) { Text("Cancelar") }
-            },
-        )
-    }
+    ConfirmarExclusaoDialog(
+        mostrar = confirmandoExclusao,
+        aoCancelar = { confirmandoExclusao = false },
+        aoConfirmar = {
+            confirmandoExclusao = false
+            onExcluir()
+        },
+    )
 }
 
 @Composable
