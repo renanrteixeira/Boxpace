@@ -69,31 +69,13 @@ class RevalidarEncomendaUseCase(
                             snapshot.fechadaEm
                         },
                     )
-                    if (persistir(aPersistir)) {
+                    if (repository.salvarComDelta(aPersistir)) {
                         Resultado.Sucesso(aPersistir, transitou)
                     } else {
                         Resultado.FalhaNaPersistencia
                     }
                 }
             }
-        }
-    }
-
-    /** Persiste via repositório e registra o delta de Salvar (LWW). `false` se falhar. */
-    private suspend fun persistir(encomenda: Encomenda): Boolean {
-        return try {
-            repository.salvar(encomenda)
-            repository.registrarDeltaPendente(
-                DeltaPendente.Salvar(
-                    encomenda = encomenda,
-                    alvoId = encomenda.id,
-                    criadoEm = agora(),
-                ),
-            )
-            true
-        } catch (_: Exception) {
-            // conservador: falha de escrita no Room não deve derrubar a coroutine
-            false
         }
     }
 

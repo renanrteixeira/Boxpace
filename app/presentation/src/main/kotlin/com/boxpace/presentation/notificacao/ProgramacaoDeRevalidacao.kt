@@ -1,5 +1,6 @@
 package com.boxpace.presentation.notificacao
 
+import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -7,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkInfo
 import java.util.concurrent.TimeUnit
 
 /**
@@ -41,8 +43,16 @@ object ProgramacaoDeRevalidacao {
             )
             .build()
 
+    /** Verifica se o worker periódico está agendado (enqueued ou running). */
+    fun estaAtivo(context: Context): Boolean {
+        val infos = WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(WORK_NOME)
+            .get()
+        return infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+    }
+
     /** Liga o worker periódico (idempotente: não cria duplicado). */
-    fun ativar(context: android.content.Context) {
+    fun ativar(context: Context) {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NOME,
             ExistingPeriodicWorkPolicy.KEEP,
@@ -51,7 +61,7 @@ object ProgramacaoDeRevalidacao {
     }
 
     /** Desliga o worker periódico. */
-    fun desativar(context: android.content.Context) {
+    fun desativar(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NOME)
     }
 }

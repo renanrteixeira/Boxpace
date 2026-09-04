@@ -20,9 +20,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +41,10 @@ import com.boxpace.presentation.notificacao.ProgramacaoDeRevalidacao
  * Android 13+, o toggle pede `POST_NOTIFICATIONS`; se negada, o worker roda
  * silencioso e aparece o aviso `Notificações desativadas`, sem repetir o prompt.
  *
+ * O estado do toggle é **derivado do WorkManager** (persistido pelo OS) para
+ * sobreviver a process death e restart, e sincronizado com a permissão do
+ * sistema para evitar toggle verde + aviso vermelho simultâneos.
+ *
  * Tema/Drive permanecem como skeleton (estado local efêmero) conforme o story.
  */
 @Composable
@@ -52,6 +56,26 @@ fun ConfiguracoesScreen(
     var temaEscuro by rememberSaveable { mutableStateOf(false) }
     var driveVinculado by rememberSaveable { mutableStateOf(false) }
     var notificarTransicoes by rememberSaveable { mutableStateOf(false) }
+
+    // Inicializa o toggle a partir do estado real do WorkManager (persistido pelo OS).
+    // Sobrevive a process death — o toggle reflete se o worker realmente está agendado.
+    LaunchedEffect(Unit) {
+        notificarTransicoes = ProgramacaoDeRevalidacao.estaAtivo(context)
+    }
+
+    // Sincroniza com a permissão do sistema: se o usuário revogou POST_NOTIFICATIONS
+    // em Configurações do sistema, desliga o toggle para evitar estado contraditório.
+    val permissaoNegada = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) != PackageManager.PERMISSION_GRANTED
+
+    LaunchedEffect(permissaoNegada) {
+        if (permissaoNegada && notificarTransicoes) {
+            notificarTransicoes = false
+        }
+    }
 
     // Ao ativar, verifica a permissão (Android 13+) e liga/desliga o worker.
     val launcherPermissao = rememberLauncherForActivityResult(
@@ -83,12 +107,6 @@ fun ConfiguracoesScreen(
             ProgramacaoDeRevalidacao.ativar(context)
         }
     }
-
-    val permissaoNegada = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) != PackageManager.PERMISSION_GRANTED
 
     Column(
         modifier = modifier

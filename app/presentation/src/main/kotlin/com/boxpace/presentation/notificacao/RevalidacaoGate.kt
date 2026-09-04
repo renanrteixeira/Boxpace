@@ -25,9 +25,13 @@ class RevalidacaoGate {
     /**
      * Executa [block] sob um lock exclusivo para [chave]. Chamadas concorrentes
      * na mesma [chave] são serializadas (a segunda espera a primeira terminar).
+     *
+     * Usa [ConcurrentHashMap.computeIfAbsent] (atômico no Java) em vez de
+     * [MutableMap.getOrPut] (Kotlin, não atômico) para garantir que duas
+     * coroutines concorrentes compartilham o mesmo [Mutex] por chave.
      */
     suspend fun <T> comLock(chave: String, block: suspend () -> T): T {
-        val mutex = mutexes.getOrPut(chave) { Mutex() }
+        val mutex = mutexes.computeIfAbsent(chave) { Mutex() }
         return mutex.withLock { block() }
     }
 

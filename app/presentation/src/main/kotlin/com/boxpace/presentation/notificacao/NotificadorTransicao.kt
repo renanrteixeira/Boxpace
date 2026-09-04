@@ -12,7 +12,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.boxpace.MainActivity
 import com.boxpace.domain.Encomenda
-import com.boxpace.presentation.ui.nomeExibicao
 
 /**
  * Notificação **local** por transição de status (AD-NOTIFY-REFRESH, NFR11) —
@@ -56,9 +55,11 @@ class NotificadorTransicao(
         NotificationManagerCompat.from(context).notify(encomenda.id.hashCode(), notificacao)
     }
 
-    /** Título cita a etiqueta + transportadora; jamais o CPF (AD-DADO-SENSIVEL). */
-    private fun titulo(encomenda: Encomenda): String =
-        "${encomenda.etiqueta} · ${encomenda.transportadora.nomeExibicao()}"
+    /** Título cita o status + etiqueta; jamais o CPF (AD-DADO-SENSIVEL). Padrão UX-DR8. */
+    private fun titulo(encomenda: Encomenda): String {
+        val status = encomenda.ultimoStatus?.lowercase() ?: "Atualização"
+        return "$status — ${encomenda.etiqueta}"
+    }
 
     /** Corpo cita o novo status (mais recente), sem dado pessoal. */
     private fun corpo(encomenda: Encomenda): String =
