@@ -36,6 +36,22 @@ class EncomendaLocalRepository(
         }
     }
 
+    override suspend fun salvarComDelta(encomenda: Encomenda): Boolean {
+        return try {
+            salvar(encomenda)
+            registrarDeltaPendente(
+                DeltaPendente.Salvar(
+                    encomenda = encomenda,
+                    alvoId = encomenda.id,
+                    criadoEm = Instant.now().toString(),
+                ),
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     override suspend fun buscarPorId(id: String): Encomenda? {
         val entidade = dao.buscarPorId(id) ?: return null
         return entidade.paraDominio(dao.eventosDe(id))

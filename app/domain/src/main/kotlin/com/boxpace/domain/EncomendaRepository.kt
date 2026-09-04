@@ -11,6 +11,16 @@ import java.time.Instant
  */
 interface EncomendaRepository {
     suspend fun salvar(encomenda: Encomenda)
+
+    /**
+     * Persiste [encomenda] e registra o [DeltaPendente.Salvar] correspondente em
+     * uma única operação — consolida o padrão `salvar` + `registrarDeltaPendente`
+     * que antes estava duplicado no ViewModel e no UseCase.
+     *
+     * Retorna `false` se a escrita falhar (conservador: não lança exceção).
+     */
+    suspend fun salvarComDelta(encomenda: Encomenda): Boolean
+
     suspend fun buscarPorId(id: String): Encomenda?
     suspend fun buscarPorCodigo(codigo: String, transportadora: Transportadora): Encomenda?
     suspend fun listar(): List<Encomenda>

@@ -2,7 +2,6 @@ package com.boxpace.presentation.vm
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.ErroDeRastreio
@@ -151,7 +150,7 @@ class AdicionarEncomendaViewModel(
                                 cpf = cpf,
                                 eventos = resultado.eventos,
                             )
-                            if (persistir(encomenda)) {
+                            if (repository.salvarComDelta(encomenda)) {
                                 _form.value = Form()
                                 _eventos.send(UiEvent.Fechar)
                             } else {
@@ -196,25 +195,6 @@ class AdicionarEncomendaViewModel(
             // caminho pro badge "Sem dados"; se houver, zera.
             buscasSemEventos = if (eventos.isEmpty()) 1 else 0,
         )
-    }
-
-    /** Persiste no repositório (Room) e registra o delta de Salvar (LWW). Retorna `false` se a escrita falhar. */
-    private suspend fun persistir(encomenda: Encomenda): Boolean {
-        return try {
-            val agoraIso = agora()
-            repository.salvar(encomenda)
-            repository.registrarDeltaPendente(
-                DeltaPendente.Salvar(
-                    encomenda = encomenda,
-                    alvoId = encomenda.id,
-                    criadoEm = agoraIso,
-                ),
-            )
-            true
-        } catch (_: Exception) {
-            // conservador: falha de escrita no Room não deve derrubar a coroutine
-            false
-        }
     }
 
     /** Etiqueta sanitizada para sobreviver a round-trip JSON (escape `"`/`\`). */

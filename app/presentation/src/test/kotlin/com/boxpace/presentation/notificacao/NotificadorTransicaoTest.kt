@@ -64,6 +64,7 @@ class NotificadorTransicaoTest {
         val titulo = notificacao.single()
             .extras.getCharSequence(Notification.EXTRA_TITLE).toString()
         assertTrue(titulo.contains("Fone de ouvido"), "título deve citar a etiqueta")
+        assertTrue(titulo.contains(" — "), "título deve seguir o padrão UX-DR8 (status — etiqueta)")
         assertFalse(titulo.contains("12345678909"), "título jamais deve citar o CPF")
     }
 
