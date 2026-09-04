@@ -1,6 +1,7 @@
 package com.boxpace.domain
 
 import kotlinx.coroutines.flow.Flow
+import java.time.Instant
 
 /**
  * Porta de saída para persistir e consultar [Encomenda].
@@ -15,7 +16,7 @@ interface EncomendaRepository {
     suspend fun listar(): List<Encomenda>
     suspend fun listarAtivas(): List<Encomenda>
     suspend fun listarFechadas(): List<Encomenda>
-    suspend fun excluir(id: String)
+    suspend fun excluir(id: String, criadoEm: String = Instant.now().toString())
 
     /** Observa reativamente todas as encomendas persistidas (Room emite). */
     fun observar(): Flow<List<Encomenda>>

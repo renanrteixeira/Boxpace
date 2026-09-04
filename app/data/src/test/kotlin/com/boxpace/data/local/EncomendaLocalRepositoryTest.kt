@@ -282,4 +282,29 @@ class EncomendaLocalRepositoryTest {
         assertEquals(3, repo.listar().single().buscasSemEventos)
         assertEquals(3, repo.observar().first().single().buscasSemEventos)
     }
+
+    @Test
+    fun EXCLUIR_CASCATA_cancela_delta_Salvar_pendente_e_registra_Excluir_em_transacao() = runBlocking {
+        val repo = repositorio()
+        val enc = encomenda("AA111111111BR")
+        repo.salvar(enc)
+        repo.registrarDeltaPendente(
+            DeltaPendente.Salvar(encomenda = enc, alvoId = enc.id, criadoEm = "2026-09-01T10:00:00Z"),
+        )
+        repo.registrarDeltaPendente(
+            DeltaPendente.Excluir(alvoId = "correios:AA222222222BR", criadoEm = "2026-09-01T09:00:00Z"),
+        )
+
+        repo.excluir(enc.id, "2026-09-01T12:00:00Z")
+
+        // Encomenda removida do Room sem resíduo.
+        assertNull(repo.buscarPorId(enc.id))
+        assertTrue(repo.listar().none { it.id == enc.id })
+
+        // O `Salvar` pendente daquela `alvoId` foi cancelado e só resta o `Excluir` registrado.
+        val deltas = repo.listarDeltasPendentes()
+        assertEquals(2, deltas.size)
+        assertTrue(deltas.all { it is DeltaPendente.Excluir })
+        assertTrue(deltas.any { it.alvoId == enc.id && it.criadoEm == "2026-09-01T12:00:00Z" })
+    }
 }

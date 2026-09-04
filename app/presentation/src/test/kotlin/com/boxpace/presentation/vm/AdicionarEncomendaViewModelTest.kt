@@ -77,8 +77,10 @@ class AdicionarEncomendaViewModelTest {
 
         override suspend fun listarFechadas(): List<Encomenda> = state.value.filter { it.fechadaEm != null }
 
-        override suspend fun excluir(id: String) {
+        override suspend fun excluir(id: String, criadoEm: String) {
             state.value = state.value.filterNot { it.id == id }
+            deltas.removeAll { it.alvoId == id }
+            deltas += DeltaPendente.Excluir(alvoId = id, criadoEm = criadoEm)
         }
 
         override suspend fun registrarDeltaPendente(delta: DeltaPendente) {
@@ -589,6 +591,22 @@ class AdicionarEncomendaViewModelTest {
         testScheduler.advanceUntilIdle()
         assertEquals("correios:AA111111111BR", repo.deltas.last().alvoId)
         assertTrue(repo.deltas.last() is DeltaPendente.Excluir)
+    }
+
+    @Test
+    fun `excluir cancela delta de Salvar pendente e registra Excluir com conjunto`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        assertEquals(1, repo.deltas.count { it is DeltaPendente.Salvar })
+
+        vm.excluir(id)
+        testScheduler.advanceUntilIdle()
+
+        // O `Salvar` pendente daquela `alvoId` é cancelado e só resta o `Excluir`.
+        assertTrue(repo.deltas.all { it is DeltaPendente.Excluir })
+        assertEquals("correios:AA111111111BR", repo.deltas.single().alvoId)
+        assertEquals("2026-09-01T12:00:00Z", repo.deltas.single().criadoEm)
     }
 
     @Test
