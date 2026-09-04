@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -185,6 +186,11 @@ internal fun EncomendaRow(
     val semDados = encomenda.eventos.isEmpty() &&
         encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS
 
+    // Confirmação leve (UX-DR5, FR6) antes de excluir — vale para os dois
+    // gatilhos da row: o item "Excluir" do menu `⋮` e o botão "Excluir" do
+    // badge "Sem dados".
+    var confirmandoExclusao by remember { mutableStateOf(false) }
+
     // Swipe é atalho redundante (UX-DR7): dispara a mesma ação do menu ⋮.
     // Arquiva quando ativa, reabre quando fechada. `onDismiss` dispara a ação
     // após o gesto; a row sai da aba atual de forma reativa (o `onArquivar`/
@@ -260,7 +266,7 @@ internal fun EncomendaRow(
                                 encomenda = encomenda,
                                 onArquivar = onArquivar,
                                 onReabrir = onReabrir,
-                                onExcluir = onExcluir,
+                                onExcluir = { confirmandoExclusao = true },
                             )
                         }
                     }
@@ -303,7 +309,7 @@ internal fun EncomendaRow(
                             encomenda = encomenda,
                             onArquivar = onArquivar,
                             onReabrir = onReabrir,
-                            onExcluir = onExcluir,
+                            onExcluir = { confirmandoExclusao = true },
                         )
                     }
                 }
@@ -317,10 +323,31 @@ internal fun EncomendaRow(
                     horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = { onRepetir(encomenda) }) { Text("Repetir") }
-                    TextButton(onClick = { onExcluir(encomenda) }) { Text("Excluir") }
+                    TextButton(onClick = { confirmandoExclusao = true }) { Text("Excluir") }
                 }
             }
         }
+    }
+
+    if (confirmandoExclusao) {
+        AlertDialog(
+            onDismissRequest = { confirmandoExclusao = false },
+            title = { Text("Excluir definitivamente?") },
+            text = {
+                Text("Essa encomenda será removida da sua lista. Não dá pra desfazer.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmandoExclusao = false
+                        onExcluir(encomenda)
+                    },
+                ) { Text("Excluir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmandoExclusao = false }) { Text("Cancelar") }
+            },
+        )
     }
 }
 

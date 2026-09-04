@@ -241,12 +241,16 @@ class AdicionarEncomendaViewModel(
         }
     }
 
-    /** Exclui: remove da lista (ativa ou fechada) + registra delta de Excluir. */
+    /**
+     * Exclui definitivamente: remove da lista (ativa ou fechada) e orquestra a
+     * cascata de deltas no repositório — cancela deltas pendentes da `alvoId`
+     * (ex.: um `Salvar` anterior) e registra `DeltaPendente.Excluir`, garantindo
+     * que o `codigo` excluído não seja recriado por um sync posterior (Epic 5).
+     */
     fun excluir(id: String) {
         viewModelScope.launch {
             try {
-                repository.excluir(id)
-                repository.registrarDeltaPendente(DeltaPendente.Excluir(alvoId = id, criadoEm = agora()))
+                repository.excluir(id, agora())
             } catch (_: Exception) {
                 // conservador: falha de escrita no Room não deve derrubar a coroutine
             }

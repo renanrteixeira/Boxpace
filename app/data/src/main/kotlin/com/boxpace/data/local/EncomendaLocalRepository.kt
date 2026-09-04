@@ -55,10 +55,25 @@ class EncomendaLocalRepository(
     override suspend fun listarFechadas(): List<Encomenda> =
         dao.listar().map { it.paraDominio(dao.eventosDe(it.id)) }.filter { it.fechadaEm != null }
 
-    override suspend fun excluir(id: String) {
+    /**
+     * Exclui definitivamente: em transação, remove encomenda/eventos do Room,
+     * **cancela** (apaga) deltas pendentes daquele `alvoId` (ex.: um `Salvar`
+     * anterior de uma edição) e registra `DeltaPendente.Excluir` — garantindo
+     * que o `codigo` excluído não seja recriado por um sync posterior (Epic 5).
+     */
+    override suspend fun excluir(id: String, criadoEm: String) {
         database.withTransaction {
             dao.excluirEventos(id)
             dao.excluir(id)
+            deltaDao.excluirPorAlvoId(id)
+            deltaDao.inserir(
+                DeltaPendenteEntity(
+                    alvoId = id,
+                    tipo = TIPO_EXCLUIR,
+                    criadoEm = criadoEm,
+                    payload = null,
+                ),
+            )
         }
     }
 

@@ -60,6 +60,10 @@ interface DeltaPendenteDao {
     @Query("DELETE FROM deltasPendentes")
     suspend fun limpar()
 
+    /** Cancela (apaga) todos os deltas pendentes daquele `alvoId` — cascata de exclusão. */
+    @Query("DELETE FROM deltasPendentes WHERE alvoId = :alvoId")
+    suspend fun excluirPorAlvoId(alvoId: String): Int
+
     @Delete
     suspend fun excluir(delta: DeltaPendenteEntity)
 }
