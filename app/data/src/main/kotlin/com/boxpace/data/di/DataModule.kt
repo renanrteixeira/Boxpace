@@ -1,11 +1,17 @@
 package com.boxpace.data.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStoreFile
 import com.boxpace.data.local.EncomendaDatabase
 import com.boxpace.data.local.EncomendaLocalRepository
+import com.boxpace.data.local.PreferenciasRepositoryImpl
 import com.boxpace.data.remote.EncomendaRemoteDataSourceImpl
 import com.boxpace.domain.EncomendaRemoteDataSource
 import com.boxpace.domain.EncomendaRepository
+import com.boxpace.domain.PreferenciasRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -74,4 +80,14 @@ object DataModule {
     fun provideHttpClient(): HttpClient = httpClient
 
     fun provideEncomendaRemoteDataSource(): EncomendaRemoteDataSource = remoteDataSource
+
+    /** DataStore Preferences compartilhado (chave-valor simples, ex.: tema). */
+    private val dataStore: DataStore<Preferences> by lazy {
+        PreferenceDataStoreFactory.create {
+            preferencesDataStoreFile("boxpace_prefs")
+        }
+    }
+
+    fun providePreferenciasRepository(): PreferenciasRepository =
+        PreferenciasRepositoryImpl(dataStore)
 }

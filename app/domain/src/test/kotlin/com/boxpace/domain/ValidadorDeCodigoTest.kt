@@ -43,9 +43,9 @@ class ValidadorDeCodigoTest {
     }
 
     @Test
-    fun `tema fromId defaults claro`() {
-        assertEquals(Tema.CLARO, Tema.fromId(null))
+    fun `tema fromId defaults sistema`() {
+        assertEquals(Tema.SISTEMA, Tema.fromId(null))
         assertEquals(Tema.ESCURO, Tema.fromId("escuro"))
-        assertEquals(Tema.CLARO, Tema.fromId("qualquer"))
+        assertEquals(Tema.SISTEMA, Tema.fromId("qualquer"))
     }
 }

@@ -23,7 +23,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -33,9 +32,6 @@ import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Transportadora
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.Form
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
-
-private val Acento = Color(0xFFEE6E34)
-private val TintaSobreAcento = Color(0xFF2B1000)
 
 /**
  * Dialog de adição da aba Ativos (Story 1.3): código + transportadora + etiqueta
@@ -155,8 +151,8 @@ fun AdicionarEncomendaDialog(
                 onClick = onConfirmar,
                 enabled = podeConfirmar,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Acento,
-                    contentColor = TintaSobreAcento,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),

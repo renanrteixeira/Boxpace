@@ -53,6 +53,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // DataStore Preferences para chave-valor simples (ex.: tema).
+    implementation("androidx.datastore:datastore-preferences:1.1.4")
+
     // Refresh de background limitado (Story 3.1): PeriodicWorkRequest ≥ 30 min.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 

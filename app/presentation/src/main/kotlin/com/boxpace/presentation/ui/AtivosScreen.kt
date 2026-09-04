@@ -50,11 +50,6 @@ import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 
-private val Acento = Color(0xFFEE6E34)
-private val TintaSobreAcento = Color(0xFF2B1000)
-private val VerdeSucesso = Color(0xFF1E7F4F)
-private val CinzaSemDados = Color(0xFF616161)
-
 /**
  * Aba **Ativos** (Story 1.4): lista em memória agregada pelo ViewModel, search
  * bar que filtra em tempo real por etiqueta OU código, rows em 2 níveis e FAB `+`.
@@ -79,8 +74,8 @@ fun AtivosScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onAdicionar,
-                containerColor = Acento,
-                contentColor = TintaSobreAcento,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)
             }
@@ -226,7 +221,7 @@ internal fun EncomendaRow(
                     Text(
                         text = if (encomenda.fechadaEm == null) "Arquivar" else "Reabrir",
                         style = MaterialTheme.typography.labelLarge,
-                        color = Acento,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -420,10 +415,10 @@ private fun StatusBadge(
     modifier: Modifier = Modifier,
 ) {
     val badge = when {
-        encomenda.statusEntregue -> BadgeSpec("Chegou!", "✓", VerdeSucesso, Color.White)
-        encomenda.eventos.isNotEmpty() -> BadgeSpec("Em trânsito", "↗", Acento, TintaSobreAcento)
+        encomenda.statusEntregue -> BadgeSpec("Chegou!", "✓", MaterialTheme.colorScheme.secondary, Color.White)
+        encomenda.eventos.isNotEmpty() -> BadgeSpec("Em trânsito", "↗", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
         encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS ->
-            BadgeSpec("Sem dados", "!", CinzaSemDados, Color.White)
+            BadgeSpec("Sem dados", "!", MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurface)
         else -> null
     }
 

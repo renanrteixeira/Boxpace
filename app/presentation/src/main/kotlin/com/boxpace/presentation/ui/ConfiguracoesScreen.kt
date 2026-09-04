@@ -16,11 +16,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,7 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.boxpace.domain.Tema
 import com.boxpace.presentation.notificacao.ProgramacaoDeRevalidacao
+import com.boxpace.presentation.vm.ConfiguracoesViewModel
 
 /**
  * Tela **Configurações** — seções **Tema** (Epic 4), **Sincronização com Drive**
@@ -45,15 +51,17 @@ import com.boxpace.presentation.notificacao.ProgramacaoDeRevalidacao
  * sobreviver a process death e restart, e sincronizado com a permissão do
  * sistema para evitar toggle verde + aviso vermelho simultâneos.
  *
- * Tema/Drive permanecem como skeleton (estado local efêmero) conforme o story.
+ * Tema: segmented de 3 opções (Sistema / Claro / Escuro) conectado ao
+ * [ConfiguracoesViewModel] — preferência persistida via DataStore.
  */
 @Composable
 fun ConfiguracoesScreen(
     onVoltar: () -> Unit,
+    viewModel: ConfiguracoesViewModel,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    var temaEscuro by rememberSaveable { mutableStateOf(false) }
+    val tema by viewModel.tema.collectAsState()
     var driveVinculado by rememberSaveable { mutableStateOf(false) }
     var notificarTransicoes by rememberSaveable { mutableStateOf(false) }
 
@@ -108,6 +116,8 @@ fun ConfiguracoesScreen(
         }
     }
 
+    val opcoesTema = listOf(Tema.SISTEMA to "Sistema", Tema.CLARO to "Claro", Tema.ESCURO to "Escuro")
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -153,12 +163,23 @@ fun ConfiguracoesScreen(
             text = "Tema",
             style = MaterialTheme.typography.titleMedium,
         )
-        ConfigRow(
-            titulo = "Tema escuro",
-            descricao = "Aplicar tema escuro. (Epic 4)",
-            checked = temaEscuro,
-            onCheckedChange = { temaEscuro = it },
+        Text(
+            text = "Escolha como o app deve se aparar.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(8.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            opcoesTema.forEachIndexed { index, (t, label) ->
+                SegmentedButton(
+                    selected = tema == t,
+                    onClick = { viewModel.alternarTema(t) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = opcoesTema.size),
+                ) {
+                    Text(label)
+                }
+            }
+        }
 
         HorizontalDivider(Modifier.padding(vertical = 16.dp))
 
