@@ -28,12 +28,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.boxpace.data.cloud.TokenOAuthProvider
+import com.boxpace.domain.SyncState
 import com.boxpace.domain.Tema
 import com.boxpace.presentation.notificacao.ProgramacaoDeRevalidacao
 import com.boxpace.presentation.vm.ConfiguracoesViewModel
@@ -62,7 +65,7 @@ fun ConfiguracoesScreen(
 ) {
     val context = LocalContext.current
     val tema by viewModel.tema.collectAsState()
-    var driveVinculado by rememberSaveable { mutableStateOf(false) }
+    val syncState by viewModel.syncState.collectAsState()
     var notificarTransicoes by rememberSaveable { mutableStateOf(false) }
 
     // Inicializa o toggle a partir do estado real do WorkManager (persistido pelo OS).
@@ -187,21 +190,73 @@ fun ConfiguracoesScreen(
             text = "Sincronização com Drive",
             style = MaterialTheme.typography.titleMedium,
         )
-        ConfigRow(
-            titulo = "Vincular conta Google",
-            descricao = "Sincronizar dados no Google Drive. (Epic 5)",
-            checked = driveVinculado,
-            onCheckedChange = { driveVinculado = it },
+
+        // Launcher do picker OAuth; entrega o token (memória) ao coordenador.
+        val tokenProvider = remember(context) { com.boxpace.data.di.DataModule.provideTokenOAuthProvider() }
+        val solicitarVincular = rememberVincularDriveLauncher(
+            tokenOAuthProvider = tokenProvider,
+            onVinculado = { viewModel.vincular() },
+            onFalha = { /* OAuth negado: permanece "Encomendas só neste aparelho" (vazio) */ },
         )
+
+        when (val estado = syncState) {
+            SyncState.Desvinculado -> ConfigRow(
+                titulo = "Encomendas só neste aparelho",
+                descricao = "Vincule sua conta Google para sincronizar seus dados na nuvem.",
+                checked = false,
+                onCheckedChange = { if (it) solicitarVincular() },
+                acaoRotulo = "Vincular Google Drive",
+            )
+            SyncState.Sincronizando -> ConfigRow(
+                titulo = "Sincronizando…",
+                descricao = "Enviando seus dados com segurança.",
+                checked = true,
+                onCheckedChange = null,
+                acaoRotulo = null,
+            )
+            SyncState.Vinculado -> ConfigRow(
+                titulo = "Vinculado",
+                descricao = "Seus dados estão sincronizados no Google Drive.",
+                checked = true,
+                onCheckedChange = null,
+                acaoRotulo = "Desvincular Drive",
+                onAcao = { viewModel.desvincular() },
+            )
+            is SyncState.SincronizacaoEmPausa -> ConfigRow(
+                titulo = "Vinculado",
+                descricao = estado.motivo,
+                checked = true,
+                onCheckedChange = null,
+                acaoRotulo = "Desvincular Drive",
+                onAcao = { viewModel.desvincular() },
+            )
+            SyncState.SincronizacaoPerdida -> {
+                ConfigRow(
+                    titulo = "Sincronização perdida",
+                    descricao = "Toque para reconectar. Seus dados estão seguros neste aparelho.",
+                    checked = true,
+                    onCheckedChange = null,
+                    acaoRotulo = "Reconectar",
+                    // o picker reautoriza (token novo) e o coordenador retoma o re-merge
+                    onAcao = { solicitarVincular() },
+                )
+            }
+        }
     }
 }
 
+/**
+ * Linha de configuração com texto de apoio e, opcionalmente, um switch ou um
+ * botão de ação (vincular/desvincular/reconectar).
+ */
 @Composable
 private fun ConfigRow(
     titulo: String,
     descricao: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    acaoRotulo: String? = null,
+    onAcao: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
@@ -214,9 +269,14 @@ private fun ConfigRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-        )
+        if (onCheckedChange != null) {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+            )
+        }
+        if (acaoRotulo != null && onAcao != null) {
+            TextButton(onClick = onAcao) { Text(acaoRotulo) }
+        }
     }
 }

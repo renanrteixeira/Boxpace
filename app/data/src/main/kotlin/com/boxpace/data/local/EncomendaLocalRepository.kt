@@ -23,6 +23,8 @@ import kotlinx.serialization.json.Json
 class EncomendaLocalRepository(
     private val database: EncomendaDatabase,
     private val json: Json,
+    /** Gatilho de sincronização disparado após registrar um delta (Epic 5). */
+    private val aoRegistrarDelta: (() -> Unit)? = null,
 ) : EncomendaRepository {
 
     private val dao = database.encomendaDao()
@@ -43,7 +45,7 @@ class EncomendaLocalRepository(
                 DeltaPendente.Salvar(
                     encomenda = encomenda,
                     alvoId = encomenda.id,
-                    criadoEm = Instant.now().toString(),
+                    criadoEm = encomenda.atualizadaEm,
                 ),
             )
             true
@@ -91,6 +93,12 @@ class EncomendaLocalRepository(
                 ),
             )
         }
+        // Gatilho da mutação: exclusão também precisa ir ao Drive (AD-SYNC-2).
+        try {
+            aoRegistrarDelta?.invoke()
+        } catch (_: Exception) {
+            // conservador: falha no disparo não deve derrubar a exclusão registrada
+        }
     }
 
     override fun observar(): Flow<List<Encomenda>> =
@@ -115,6 +123,12 @@ class EncomendaLocalRepository(
                 },
             ),
         )
+        // Gatilho da mutação: dispara o sync em fire-and-forget (AD-SYNC-2).
+        try {
+            aoRegistrarDelta?.invoke()
+        } catch (_: Exception) {
+            // conservador: falha no disparo não deve derrubar a mutação registrada
+        }
     }
 
     override suspend fun listarDeltasPendentes(): List<DeltaPendente> =

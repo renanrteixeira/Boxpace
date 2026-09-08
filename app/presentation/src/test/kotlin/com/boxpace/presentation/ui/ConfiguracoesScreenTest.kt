@@ -13,11 +13,14 @@ import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.Preferencias
 import com.boxpace.domain.PreferenciasRepository
+import com.boxpace.domain.SincronizacaoRepository
+import com.boxpace.domain.SyncState
 import com.boxpace.domain.Tema
 import com.boxpace.domain.Transportadora
 import com.boxpace.presentation.vm.ConfiguracoesViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -76,6 +79,16 @@ class ConfiguracoesScreenTest {
         override suspend fun purgarFechadasAntigas(dias: Int) {}
     }
 
+    class SincronizacaoRepoFake : SincronizacaoRepository {
+        override val syncState: StateFlow<SyncState> = MutableStateFlow(SyncState.Desvinculado)
+
+        override suspend fun vincular(): Boolean = true
+
+        override suspend fun desvincular(): Boolean = true
+
+        override suspend fun reconectar(): Boolean = true
+    }
+
     @Before
     fun setup() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -89,6 +102,7 @@ class ConfiguracoesScreenTest {
         val viewModel = ConfiguracoesViewModel(
             preferenciasRepository = preferenciasRepo,
             encomendaRepository = encomendaRepo,
+            sincronizacaoRepository = SincronizacaoRepoFake(),
             agora = { "2026-09-01T12:00:00Z" },
         )
 
@@ -118,6 +132,7 @@ class ConfiguracoesScreenTest {
         val viewModel = ConfiguracoesViewModel(
             preferenciasRepository = preferenciasRepo,
             encomendaRepository = EncomendaRepoFake(),
+            sincronizacaoRepository = SincronizacaoRepoFake(),
             agora = { "2026-09-01T12:00:00Z" },
         )
 

@@ -228,6 +228,14 @@ class AdicionarEncomendaViewModel(
     }
 
     /**
+     * Persiste a [encomenda] via `salvarComDelta` — salva no Room e registra o
+     * `DeltaPendente.Salvar` correspondente em uma única operação (espelho Epic 5).
+     */
+    private suspend fun persistir(encomenda: Encomenda) {
+        repository.salvarComDelta(encomenda)
+    }
+
+    /**
      * Exclui definitivamente: remove da lista (ativa ou fechada) e orquestra a
      * cascata de deltas no repositório — cancela deltas pendentes da `alvoId`
      * (ex.: um `Salvar` anterior) e registra `DeltaPendente.Excluir`, garantindo
