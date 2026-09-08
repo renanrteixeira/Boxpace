@@ -58,6 +58,7 @@ dependencies {
 
     // Refresh de background limitado (Story 3.1): PeriodicWorkRequest ≥ 30 min.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    testImplementation("androidx.work:work-testing:2.9.1")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")

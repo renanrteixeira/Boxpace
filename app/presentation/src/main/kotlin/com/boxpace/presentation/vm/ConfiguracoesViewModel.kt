@@ -39,31 +39,24 @@ class ConfiguracoesViewModel(
     fun alternarTema(novoTema: Tema) {
         viewModelScope.launch {
             _tema.update { novoTema }
-            preferenciasRepository.salvar(Preferencias(tema = novoTema))
-            registrarDeltaTema(novoTema)
+            val preferencias = Preferencias(tema = novoTema, updatedAt = agora())
+            preferenciasRepository.salvar(preferencias)
+            registrarDeltaPreferencia(preferencias)
         }
     }
 
     /**
      * Registra delta pendente de preferência para sync futuro (Epic 5 / Drive).
-     * Usa a infra existente de [DeltaPendente] com alvo `"preferencias:tema"`.
+     * Alvo fixo `"preferencias:tema"`; [DeltaPendente.SalvarPreferencia.criadoEm]
+     * == [Preferencias.updatedAt] (LWW por registro).
      */
-    private suspend fun registrarDeltaTema(tema: Tema) {
+    private suspend fun registrarDeltaPreferencia(preferencias: Preferencias) {
         try {
-            val ts = agora()
-            val encomendaDummy = com.boxpace.domain.Encomenda(
-                id = "preferencias:tema",
-                codigo = tema.id,
-                transportadora = com.boxpace.domain.Transportadora.CORREIOS,
-                etiqueta = "preferencia:tema",
-                criadaEm = ts,
-                atualizadaEm = ts,
-            )
             encomendaRepository.registrarDeltaPendente(
-                DeltaPendente.Salvar(
-                    encomenda = encomendaDummy,
+                DeltaPendente.SalvarPreferencia(
+                    preferencias = preferencias,
                     alvoId = "preferencias:tema",
-                    criadoEm = agora(),
+                    criadoEm = preferencias.updatedAt,
                 ),
             )
         } catch (_: Exception) {

@@ -23,4 +23,10 @@ sealed interface DeltaPendente {
         override val alvoId: String,
         override val criadoEm: String,
     ) : DeltaPendente
+
+    data class SalvarPreferencia(
+        val preferencias: Preferencias,
+        override val alvoId: String,
+        override val criadoEm: String,
+    ) : DeltaPendente
 }
