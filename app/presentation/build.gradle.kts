@@ -56,6 +56,14 @@ dependencies {
     // DataStore Preferences para chave-valor simples (ex.: tema).
     implementation("androidx.datastore:datastore-preferences:1.1.4")
 
+    // Epic 5 — OAuth Google Drive (drive.appdata). Versões verificadas na web 2026.
+    // AuthorizationClient (play-services-auth) + Credential Manager (AndroidX + GoogleID).
+    // Pré-requisito externo: projeto GCP com client ID OAuth Android (SHA-1) — Ask First.
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
+    implementation("com.google.android.gms:play-services-auth:22.0.0")
+
     // Refresh de background limitado (Story 3.1): PeriodicWorkRequest ≥ 30 min.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     testImplementation("androidx.work:work-testing:2.9.1")

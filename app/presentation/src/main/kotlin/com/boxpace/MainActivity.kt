@@ -16,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.boxpace.data.cloud.ConnectivityObserver
 import com.boxpace.data.di.DataModule
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.RastrearEncomendaUseCase
@@ -40,8 +41,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val configuracoesVm: ConfiguracoesViewModel = viewModel {
                 ConfiguracoesViewModel(
-                    preferenciasRepository = DataModule.providePreferenciasRepository(),
+                    preferenciasRepository = DataModule.providePreferenciasRepository(applicationContext),
                     encomendaRepository = DataModule.provideEncomendaRepository(applicationContext),
+                    sincronizacaoRepository = DataModule.provideSincronizacaoRepository(applicationContext),
                 )
             }
             val tema by configuracoesVm.tema.collectAsState()
@@ -89,6 +91,19 @@ internal fun BoxpaceApp(
             rastrear = RastrearEncomendaUseCase(DataModule.provideEncomendaRemoteDataSource()),
             repository = DataModule.provideEncomendaRepository(context),
         )
+    }
+
+    // Gatilhos de sync (AD-SYNC-2): app-start e reconexão de rede. Sem worker
+    // periódico; um sync em voo por vez (mutex do coordenador).
+    val coordenador = remember(context) { DataModule.provideCoordenadorDeSync(context) }
+    LaunchedEffect(Unit) {
+        coordenador.dispararSync()
+        val observer = ConnectivityObserver(context)
+        observer.reconexao.collect { conectado ->
+            if (conectado) {
+                coordenador.dispararSync()
+            }
+        }
     }
 
     val form by viewModel.form.collectAsState()

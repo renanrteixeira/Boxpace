@@ -5,12 +5,15 @@ import com.boxpace.domain.Encomenda
 import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.Preferencias
 import com.boxpace.domain.PreferenciasRepository
+import com.boxpace.domain.SincronizacaoRepository
+import com.boxpace.domain.SyncState
 import com.boxpace.domain.Tema
 import com.boxpace.domain.Transportadora
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -70,14 +73,28 @@ class ConfiguracoesViewModelTest {
         override suspend fun purgarFechadasAntigas(dias: Int) {}
     }
 
+    class SincronizacaoRepoFake(
+        var estado: SyncState = SyncState.Desvinculado,
+    ) : SincronizacaoRepository {
+        override val syncState: StateFlow<SyncState> = MutableStateFlow(estado)
+
+        override suspend fun vincular(): Boolean = true
+
+        override suspend fun desvincular(): Boolean = true
+
+        override suspend fun reconectar(): Boolean = true
+    }
+
     private lateinit var preferenciasRepo: PreferenciasRepoFake
     private lateinit var encomendaRepo: EncomendaRepoFake
+    private lateinit var sincronizacaoRepo: SincronizacaoRepoFake
 
     @BeforeTest
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         preferenciasRepo = PreferenciasRepoFake()
         encomendaRepo = EncomendaRepoFake()
+        sincronizacaoRepo = SincronizacaoRepoFake()
     }
 
     @AfterTest
@@ -88,6 +105,7 @@ class ConfiguracoesViewModelTest {
     private fun criarVm(): ConfiguracoesViewModel = ConfiguracoesViewModel(
         preferenciasRepository = preferenciasRepo,
         encomendaRepository = encomendaRepo,
+        sincronizacaoRepository = sincronizacaoRepo,
         agora = { "2026-09-01T12:00:00Z" },
     )
 

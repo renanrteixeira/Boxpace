@@ -5,6 +5,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.boxpace.data.cloud.CoordenadorDeSync
+import com.boxpace.data.cloud.DriveCliente
+import com.boxpace.data.cloud.TokenOAuthProvider
 import com.boxpace.data.local.EncomendaDatabase
 import com.boxpace.data.local.EncomendaLocalRepository
 import com.boxpace.data.local.PreferenciasRepositoryImpl
@@ -12,11 +15,15 @@ import com.boxpace.data.remote.EncomendaRemoteDataSourceImpl
 import com.boxpace.domain.EncomendaRemoteDataSource
 import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.PreferenciasRepository
+import com.boxpace.domain.SincronizacaoRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 
 /**
@@ -74,20 +81,65 @@ object DataModule {
         val db = database ?: synchronized(this) {
             database ?: EncomendaDatabase.criar(context.applicationContext).also { database = it }
         }
-        return EncomendaLocalRepository(db, json)
+        return EncomendaLocalRepository(
+            database = db,
+            json = json,
+            // Gatilho da mutação (Epic 5): dispara o sync no coordenador (fire-and-forget).
+            // Referencia o campo (não uma val local) para capturar o coordenador criado depois.
+            aoRegistrarDelta = { coordenador?.dispararSync() },
+        )
     }
 
-    fun provideHttpClient(): HttpClient = httpClient
+    /** Coordenador de sincronização — único escritor do Drive (AD-SYNC-1). */
+    @Volatile
+    private var coordenador: CoordenadorDeSync? = null
 
-    fun provideEncomendaRemoteDataSource(): EncomendaRemoteDataSource = remoteDataSource
+    /** Escopo do coordenador: coroutines de sync em background (fire-and-forget). */
+    private val syncScope: CoroutineScope by lazy {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 
-    /** DataStore Preferences compartilhado (chave-valor simples, ex.: tema). */
-    private val dataStore: DataStore<Preferences> by lazy {
-        PreferenceDataStoreFactory.create {
-            preferencesDataStoreFile("boxpace_prefs")
+    fun provideTokenOAuthProvider(): TokenOAuthProvider = tokenOAuthProvider
+
+    fun provideDriveCliente(): DriveCliente =
+        DriveCliente(client = httpClient, tokenProvider = tokenOAuthProvider, json = json)
+
+    fun provideCoordenadorDeSync(context: Context): CoordenadorDeSync {
+        coordenador?.let { return it }
+        return synchronized(this) {
+            coordenador ?: CoordenadorDeSync(
+                encomendaRepository = provideEncomendaRepository(context),
+                preferenciasRepository = providePreferenciasRepository(context),
+                drive = provideDriveCliente(),
+                tokenProvider = tokenOAuthProvider,
+                scope = syncScope,
+            ).also { coordenador = it }
         }
     }
 
-    fun providePreferenciasRepository(): PreferenciasRepository =
-        PreferenciasRepositoryImpl(dataStore)
+    fun provideSincronizacaoRepository(context: Context): SincronizacaoRepository =
+        provideCoordenadorDeSync(context)
+
+    fun provideHttpClient(): HttpClient = httpClient
+
+    /** Token OAuth em memória — único por processo (AD-SYNC-3). */
+    private val tokenOAuthProvider: TokenOAuthProvider by lazy { TokenOAuthProvider() }
+
+    fun provideEncomendaRemoteDataSource(): EncomendaRemoteDataSource = remoteDataSource
+
+    /** DataStore Preferences compartilhado (chave-valor simples, ex.: tema) — único por processo. */
+    @Volatile
+    private var dataStore: DataStore<Preferences>? = null
+
+    private fun provideDataStore(context: Context): DataStore<Preferences> {
+        dataStore?.let { return it }
+        return synchronized(this) {
+            dataStore ?: PreferenceDataStoreFactory.create {
+                context.applicationContext.preferencesDataStoreFile("boxpace_prefs")
+            }.also { dataStore = it }
+        }
+    }
+
+    fun providePreferenciasRepository(context: Context): PreferenciasRepository =
+        PreferenciasRepositoryImpl(provideDataStore(context))
 }

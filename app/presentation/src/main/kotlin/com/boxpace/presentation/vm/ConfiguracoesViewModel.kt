@@ -6,6 +6,8 @@ import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.EncomendaRepository
 import com.boxpace.domain.Preferencias
 import com.boxpace.domain.PreferenciasRepository
+import com.boxpace.domain.SincronizacaoRepository
+import com.boxpace.domain.SyncState
 import com.boxpace.domain.Tema
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,25 +17,42 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 
 /**
- * ViewModel para a tela Configurações — gerencia a preferência de tema.
+ * ViewModel para a tela Configurações — gerencia a preferência de tema (Epic 4)
+ * e o estado de sincronização com o Google Drive (Epic 5).
  *
- * Carrega via [PreferenciasRepository] e expõe [tema] como StateFlow reativo.
- * [alternarTema] persiste imediatamente e registra delta pendente para Epic 5.
+ * [syncState] vem reativamente da porta [SincronizacaoRepository]. As ações
+ * [vincular]/[desvincular]/[reconectar] delegam ao coordenador em `data/cloud`.
  */
 class ConfiguracoesViewModel(
     private val preferenciasRepository: PreferenciasRepository,
     private val encomendaRepository: EncomendaRepository,
+    private val sincronizacaoRepository: SincronizacaoRepository,
     private val agora: () -> String = { Instant.now().toString() },
 ) : ViewModel() {
 
     private val _tema = MutableStateFlow(Tema.SISTEMA)
     val tema: StateFlow<Tema> = _tema.asStateFlow()
 
+    val syncState: StateFlow<SyncState> = sincronizacaoRepository.syncState
+
     init {
         viewModelScope.launch {
             val preferencias = preferenciasRepository.carregar()
             _tema.update { preferencias.tema }
         }
+    }
+
+    /** Autoriza o vínculo no picker (token entregue pelo launcher) e sincroniza. */
+    fun vincular() {
+        viewModelScope.launch { sincronizacaoRepository.vincular() }
+    }
+
+    fun desvincular() {
+        viewModelScope.launch { sincronizacaoRepository.desvincular() }
+    }
+
+    fun reconectar() {
+        viewModelScope.launch { sincronizacaoRepository.reconectar() }
     }
 
     fun alternarTema(novoTema: Tema) {

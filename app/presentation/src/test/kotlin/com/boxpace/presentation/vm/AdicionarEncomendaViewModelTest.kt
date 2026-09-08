@@ -66,6 +66,20 @@ class AdicionarEncomendaViewModelTest {
             state.value = listOf(encomenda) + state.value.filterNot { it.id == encomenda.id }
         }
 
+        override suspend fun salvarComDelta(encomenda: Encomenda): Boolean = try {
+            salvar(encomenda)
+            registrarDeltaPendente(
+                DeltaPendente.Salvar(
+                    encomenda = encomenda,
+                    alvoId = encomenda.id,
+                    criadoEm = encomenda.atualizadaEm,
+                ),
+            )
+            true
+        } catch (_: Exception) {
+            false
+        }
+
         override suspend fun buscarPorId(id: String): Encomenda? = state.value.firstOrNull { it.id == id }
 
         override suspend fun buscarPorCodigo(codigo: String, transportadora: Transportadora): Encomenda? =

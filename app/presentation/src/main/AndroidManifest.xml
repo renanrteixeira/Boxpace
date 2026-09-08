@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Observa conectividade para reconexão de sync (Epic 5); ACCESS_NETWORK_STATE. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Notificações locais de transição de status (Story 3.1); Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
