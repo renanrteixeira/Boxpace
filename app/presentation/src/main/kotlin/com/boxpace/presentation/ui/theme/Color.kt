@@ -12,6 +12,7 @@ val InkDisabled = Color(0xFFA9AEBD)
 val Accent = Color(0xFFEE6E34)
 val OnAccent = Color(0xFF2B1000)
 val Success = Color(0xFF1E7F4F)
+val OnSuccess = Color(0xFF2B1000)
 val BorderHairline = Color(0xFFDFE1EC)
 
 // Dark tokens
@@ -24,4 +25,5 @@ val InkDisabledDark = Color(0xFF5C6075)
 val AccentDark = Color(0xFFFF8A4C)
 val OnAccentDark = Color(0xFF2B1000)
 val SuccessDark = Color(0xFF3DB87E)
+val OnSuccessDark = Color(0xFF2B1000)
 val BorderHairlineDark = Color(0xFF343750)

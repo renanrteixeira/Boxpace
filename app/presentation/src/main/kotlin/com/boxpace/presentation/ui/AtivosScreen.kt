@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
+import com.boxpace.presentation.ui.theme.coresBadgeSucesso
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 
 /**
@@ -415,7 +416,10 @@ private fun StatusBadge(
     modifier: Modifier = Modifier,
 ) {
     val badge = when {
-        encomenda.statusEntregue -> BadgeSpec("Chegou!", "✓", MaterialTheme.colorScheme.secondary, Color.White)
+        encomenda.statusEntregue -> {
+            val cor = coresBadgeSucesso(MaterialTheme.colorScheme)
+            BadgeSpec("Chegou!", "✓", cor.fundo, cor.texto)
+        }
         encomenda.eventos.isNotEmpty() -> BadgeSpec("Em trânsito", "↗", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
         encomenda.buscasSemEventos >= AdicionarEncomendaViewModel.SEM_DADOS_BUSCAS ->
             BadgeSpec("Sem dados", "!", MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurface)

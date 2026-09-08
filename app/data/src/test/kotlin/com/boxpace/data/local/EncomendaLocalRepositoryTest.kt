@@ -6,6 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
+import com.boxpace.domain.Preferencias
+import com.boxpace.domain.Tema
 import com.boxpace.domain.Transportadora
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -269,6 +271,43 @@ class EncomendaLocalRepositoryTest {
         val unico = deltas.single()
         assertTrue(unico is DeltaPendente.Excluir)
         assertEquals("correios:AA222222222BR", unico.alvoId)
+    }
+
+    @Test
+    fun ROUND_TRIP_PREFERENCIA_salvarPreferencia_paraJson_doJson_preserva_tema_e_updatedAt() = runBlocking {
+        val repo = repositorio()
+        val preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:30:00Z")
+
+        repo.registrarDeltaPendente(
+            DeltaPendente.SalvarPreferencia(
+                preferencias = preferencias,
+                alvoId = "preferencias:tema",
+                criadoEm = preferencias.updatedAt,
+            ),
+        )
+
+        val recuperado = repo.listarDeltasPendentes().single() as DeltaPendente.SalvarPreferencia
+        assertEquals(preferencias, recuperado.preferencias)
+        assertEquals("preferencias:tema", recuperado.alvoId)
+        assertEquals("2026-09-01T12:30:00Z", recuperado.criadoEm)
+    }
+
+    @Test
+    fun PREFERENCIA_CORROMPIDA_payload_invalido_de_salvar_preferencia_e_ignorado_sem_excecao() = runBlocking {
+        val repo = repositorio()
+        val dao = database.deltaPendenteDao()
+
+        dao.inserir(
+            DeltaPendenteEntity(
+                alvoId = "preferencias:tema",
+                tipo = "salvar-preferencia",
+                criadoEm = "2026-09-01T10:00:00Z",
+                payload = "{{{nao-e-json",
+            ),
+        )
+
+        val deltas = repo.listarDeltasPendentes()
+        assertEquals(emptyList<DeltaPendente>(), deltas)
     }
 
     @Test

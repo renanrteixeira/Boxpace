@@ -45,6 +45,7 @@ class PreferenciasRepositoryImplTest {
     fun DEFAULT_RETORNA_SISTEMA_quando_nao_ha_preferencia() = runBlocking {
         val prefs = repo.carregar()
         assertEquals(Tema.SISTEMA, prefs.tema)
+        assertEquals("", prefs.updatedAt)
     }
 
     @Test
@@ -57,6 +58,19 @@ class PreferenciasRepositoryImplTest {
 
         repo.salvar(com.boxpace.domain.Preferencias(tema = Tema.SISTEMA))
         assertEquals(Tema.SISTEMA, repo.carregar().tema)
+    }
+
+    @Test
+    fun ROUND_TRIP_UPDATED_AT_salvar_e_carregar_mantem_tema_e_updatedAt() = runBlocking {
+        repo.salvar(com.boxpace.domain.Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:00:00Z"))
+        val carregadas = repo.carregar()
+        assertEquals(Tema.ESCURO, carregadas.tema)
+        assertEquals("2026-09-01T12:00:00Z", carregadas.updatedAt)
+
+        repo.salvar(com.boxpace.domain.Preferencias(tema = Tema.CLARO, updatedAt = "2026-09-02T08:00:00Z"))
+        val recarregadas = repo.carregar()
+        assertEquals(Tema.CLARO, recarregadas.tema)
+        assertEquals("2026-09-02T08:00:00Z", recarregadas.updatedAt)
     }
 
     @Test

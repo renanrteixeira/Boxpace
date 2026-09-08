@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
+import com.boxpace.presentation.ui.theme.coresBadgeSucesso
 import java.time.format.DateTimeFormatter
 
 private val TipoDataHora: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM HH:mm")
@@ -190,7 +191,10 @@ private fun StatusBadge(
     modifier: Modifier = Modifier,
 ) {
     val badge = when {
-        encomenda.statusEntregue -> StatusBadgeSpec("Chegou!", "✓", MaterialTheme.colorScheme.secondary, Color.White)
+        encomenda.statusEntregue -> {
+            val cor = coresBadgeSucesso(MaterialTheme.colorScheme)
+            StatusBadgeSpec("Chegou!", "✓", cor.fundo, cor.texto)
+        }
         encomenda.eventos.isNotEmpty() -> StatusBadgeSpec("Em trânsito", "↗", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
         else -> null
     }

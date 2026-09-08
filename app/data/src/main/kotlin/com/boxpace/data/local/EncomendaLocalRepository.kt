@@ -105,9 +105,14 @@ class EncomendaLocalRepository(
                 tipo = when (delta) {
                     is DeltaPendente.Salvar -> TIPO_SALVAR
                     is DeltaPendente.Excluir -> TIPO_EXCLUIR
+                    is DeltaPendente.SalvarPreferencia -> TIPO_SALVAR_PREFERENCIA
                 },
                 criadoEm = delta.criadoEm,
-                payload = (delta as? DeltaPendente.Salvar)?.let { EncomendaPayloadMapper.paraJson(it.encomenda, json) },
+                payload = when (delta) {
+                    is DeltaPendente.Salvar -> EncomendaPayloadMapper.paraJson(delta.encomenda, json)
+                    is DeltaPendente.SalvarPreferencia -> PreferenciasPayloadMapper.paraJson(delta.preferencias, json)
+                    is DeltaPendente.Excluir -> null
+                },
             ),
         )
     }
@@ -124,6 +129,16 @@ class EncomendaLocalRepository(
                     )
                 } catch (_: Exception) {
                     // delta de Salvar corrompido/ilegível: ignora (não derruba o sync)
+                    null
+                }
+                TIPO_SALVAR_PREFERENCIA -> try {
+                    DeltaPendente.SalvarPreferencia(
+                        preferencias = PreferenciasPayloadMapper.doJson(entidade.payload ?: "", json),
+                        alvoId = entidade.alvoId,
+                        criadoEm = entidade.criadoEm,
+                    )
+                } catch (_: Exception) {
+                    // delta de preferência corrompido/ilegível: ignora (não derruba o sync)
                     null
                 }
                 TIPO_EXCLUIR -> DeltaPendente.Excluir(
@@ -197,5 +212,6 @@ class EncomendaLocalRepository(
     private companion object {
         const val TIPO_SALVAR = "salvar"
         const val TIPO_EXCLUIR = "excluir"
+        const val TIPO_SALVAR_PREFERENCIA = "salvar-preferencia"
     }
 }
