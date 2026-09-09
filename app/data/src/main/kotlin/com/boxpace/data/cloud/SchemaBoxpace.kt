@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
 object SchemaBoxpace {
 
     /** Versão de schema emitida por este app. Arquivo > [SCHEMA_VERSION] ⇒ recusa sobrescrever. */
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
 
     /** Nome fixo do arquivo canônico na raiz do App Data Folder (AD-SYNC-4). */
     const val NOME_ARQUIVO = "boxpace.json"
@@ -25,6 +25,9 @@ object SchemaBoxpace {
     private val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
+        // arquivo legado com `"etiqueta": null` explícito (ou campo análogo nulo
+        // em propriedade não-nula atual) não pode lançar no decode antes da migração
+        coerceInputValues = true
     }
 
     fun decodificar(conteudo: String): BoxpaceArquivo =
@@ -33,18 +36,47 @@ object SchemaBoxpace {
     fun codificar(arquivo: BoxpaceArquivo): String =
         json.encodeToString(BoxpaceArquivo.serializer(), arquivo)
 
+    /**
+     * Migra um arquivo para a forma atual (v2), **em memória, antes de qualquer
+     * merge LWW** (invariante do CoordenadorDeSync). Idempotente: roda para
+     * qualquer versão, normalizando `transportadora` (enum `CORREIOS|JT`) e
+     * dedup de eventos de registros vivos em todos; o bump de `schemaVersion`
+     * acontece apenas para arquivos anteriores ao atual.
+     *
+     * Legado v1 escrevia o `scraperId` minúsculo (`correios`/`jt`) e podia
+     * omitir/zerar `etiqueta`; v2 fixa enum e `etiqueta` obrigatória (fallback
+     * para `codigo`). Tombstones só recebem normalização de `transportadora`.
+     */
+    fun migrarParaSchemaAtual(arquivo: BoxpaceArquivo): BoxpaceArquivo {
+        val registros = arquivo.encomendas.map { registro ->
+            if (registro.tombstone) {
+                registro.copy(transportadora = normalizarTransportadora(registro.transportadora))
+            } else {
+                registro.copy(
+                    etiqueta = registro.etiqueta.ifBlank { registro.codigo },
+                    transportadora = normalizarTransportadora(registro.transportadora),
+                    eventos = deduplicarEventos(registro.eventos),
+                )
+            }
+        }
+        val base = arquivo.copy(encomendas = registros)
+        return if (arquivo.schemaVersion < SCHEMA_VERSION) base.copy(schemaVersion = SCHEMA_VERSION) else base
+    }
+
     /** Encomenda de domínio → registro vivo canônico. [fechadaEm] vira [Fechado]. */
     fun encomendaParaRegistro(encomenda: Encomenda): RegistroEncomenda = RegistroEncomenda(
         codigo = encomenda.codigo,
-        transportadora = encomenda.transportadora.scraperId,
-        etiqueta = encomenda.etiqueta,
+        transportadora = encomenda.transportadora.name,
+        etiqueta = encomenda.etiqueta.ifBlank { encomenda.codigo },
         ultimoStatus = encomenda.ultimoStatus,
         statusEntregue = encomenda.statusEntregue,
         fechado = encomenda.fechadaEm?.let { Fechado(valor = true, atualizadoEm = it) },
         criadaEm = encomenda.criadaEm,
         updatedAt = encomenda.atualizadaEm,
         cpfDestinatario = encomenda.cpfDestinatario,
-        eventos = encomenda.eventos.map { EventoBoxpace(it.data, it.descricao, it.cidade, it.uf, it.unidade) },
+        eventos = deduplicarEventos(
+            encomenda.eventos.map { EventoBoxpace(it.data, it.descricao, it.cidade, it.uf, it.unidade) },
+        ),
         tombstone = false,
     )
 
@@ -56,7 +88,7 @@ object SchemaBoxpace {
             id = "${transportadora.scraperId}:$codigo",
             codigo = codigo,
             transportadora = transportadora,
-            etiqueta = registro.etiqueta ?: codigo,
+            etiqueta = registro.etiqueta.ifBlank { codigo },
             ultimoStatus = registro.ultimoStatus,
             statusEntregue = registro.statusEntregue,
             eventos = registro.eventos.map {
@@ -73,10 +105,32 @@ object SchemaBoxpace {
     fun tombstoneParaRegistro(codigo: String, transportadora: Transportadora, updatedAt: String): RegistroEncomenda =
         RegistroEncomenda(
             codigo = codigo,
-            transportadora = transportadora.scraperId,
+            transportadora = transportadora.name,
             updatedAt = updatedAt,
             tombstone = true,
         )
+
+    /**
+     * Dedup idempotente de eventos por `data + descricao + unidade` preservando
+     * a ordem original: a posição da **primeira ocorrência** da chave é mantida
+     * e o valor é substituído pela **última cópia** (put em chave existente não
+     * reposiciona no [LinkedHashMap]). A12 — mesma data+descricao com `unidade`
+     * diferente é um evento distinto e permanece.
+     */
+    fun deduplicarEventos(eventos: List<EventoBoxpace>): List<EventoBoxpace> {
+        val mantidos = LinkedHashMap<ChaveEvento, EventoBoxpace>()
+        eventos.forEach { evento ->
+            val chave = ChaveEvento(evento.data, evento.descricao, evento.unidade)
+            mantidos[chave] = evento
+        }
+        return mantidos.values.toList()
+    }
+
+    /** `correios`/`jt` (scraperId legado) e `CORREIOS`/`JT` (enum) → enum name; desconhecida → CORREIOS. */
+    private fun normalizarTransportadora(valor: String): String =
+        Transportadora.fromScraperId(valor)?.name ?: Transportadora.CORREIOS.name
+
+    private data class ChaveEvento(val data: String, val descricao: String, val unidade: String?)
 }
 
 /** Contorno top-level do canônico. */
@@ -92,7 +146,7 @@ data class BoxpaceArquivo(
 data class RegistroEncomenda(
     val codigo: String,
     val transportadora: String,
-    val etiqueta: String? = null,
+    val etiqueta: String = "",
     val ultimoStatus: String? = null,
     val statusEntregue: Boolean = false,
     val fechado: Fechado? = null,

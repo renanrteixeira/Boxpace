@@ -179,6 +179,13 @@ class MergeRegistrosTest {
 
     // --- round-trip SchemaBoxpace (registro vivo <-> domínio) ---
 
+    private fun roundTrip(encomenda: Encomenda): Encomenda {
+        val conteudo = SchemaBoxpace.codificar(
+            BoxpaceArquivo(encomendas = listOf(SchemaBoxpace.encomendaParaRegistro(encomenda))),
+        )
+        return SchemaBoxpace.registroParaEncomenda(SchemaBoxpace.decodificar(conteudo).encomendas.single())
+    }
+
     @Test
     fun `schema round trip preserva encomenda`() {
         val original = encomenda(
@@ -190,7 +197,7 @@ class MergeRegistrosTest {
         val deVolta = SchemaBoxpace.decodificar(conteudo).encomendas.single()
 
         assertEquals(original.codigo, deVolta.codigo)
-        assertEquals("correios", deVolta.transportadora)
+        assertEquals("CORREIOS", deVolta.transportadora)
         assertEquals(original.etiqueta, deVolta.etiqueta)
         assertEquals(original.atualizadaEm, deVolta.updatedAt)
         assertNull(deVolta.fechado)
@@ -200,6 +207,162 @@ class MergeRegistrosTest {
         assertEquals(original.etiqueta, dominio.etiqueta)
         assertEquals(original.atualizadaEm, dominio.atualizadaEm)
         assertNull(dominio.fechadaEm)
+    }
+
+    @Test
+    fun `round trip JT com cpf etiqueta e eventos preserva tudo exceto buscasSemEventos`() {
+        val original = Encomenda(
+            id = "jt:888123456789",
+            codigo = "888123456789",
+            transportadora = Transportadora.JT,
+            etiqueta = "Fone J&T",
+            ultimoStatus = "Objeto em trânsito",
+            statusEntregue = false,
+            eventos = listOf(
+                Evento("2026-09-01T10:00:00", "Objeto postado", "São Paulo", "SP", "AGF Centro"),
+                Evento("2026-09-02T10:00:00", "Em trânsito", "Campinas", "SP", "CTE Campinas"),
+            ),
+            criadaEm = "2026-09-01T09:00:00Z",
+            atualizadaEm = "2026-09-02T09:00:00Z",
+            fechadaEm = null,
+            cpfDestinatario = "12345678909",
+            buscasSemEventos = 3,
+        )
+
+        val deVolta = roundTrip(original)
+
+        assertEquals(original.copy(buscasSemEventos = 0), deVolta)
+    }
+
+    @Test
+    fun `round trip preferencias preserva registro`() {
+        val registro = MergeRegistros.preferenciaParaRegistro(
+            "preferencias:tema",
+            Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:00:00Z"),
+        )
+
+        val conteudo = SchemaBoxpace.codificar(BoxpaceArquivo(preferencias = listOf(registro)))
+        val deVolta = SchemaBoxpace.decodificar(conteudo).preferencias.single()
+
+        assertEquals(registro, deVolta)
+    }
+
+    // --- migração v1 -> v2 (etiqueta ausente + transportadora scraperId) ---
+
+    @Test
+    fun `migra v1 para v2 normalizando etiqueta e transportadora de vivos e tombstones`() {
+        val v1 = """
+            {
+              "schemaVersion": 1,
+              "encomendas": [
+                {"codigo":"AA123456789BR","transportadora":"correios","updatedAt":"2026-09-01T10:00:00Z"},
+                {"codigo":"888123456789","transportadora":"jt","etiqueta":null,"updatedAt":"2026-09-01T10:00:00Z"},
+                {"tombstone":true,"codigo":"ZZ000","transportadora":"correios","updatedAt":"2026-09-01T09:00:00Z"}
+              ],
+              "preferencias": []
+            }
+        """.trimIndent()
+
+        val migrado = SchemaBoxpace.migrarParaSchemaAtual(SchemaBoxpace.decodificar(v1))
+
+        assertEquals(2, migrado.schemaVersion)
+        val correios = migrado.encomendas.first { it.codigo == "AA123456789BR" }
+        assertEquals("CORREIOS", correios.transportadora)
+        assertEquals("AA123456789BR", correios.etiqueta)
+        val jt = migrado.encomendas.first { it.codigo == "888123456789" }
+        assertEquals("JT", jt.transportadora)
+        // "etiqueta":null explícito é coagido para "" e preenchido no vivo
+        assertEquals("888123456789", jt.etiqueta)
+        val tombstone = migrado.encomendas.first { it.tombstone }
+        assertEquals("CORREIOS", tombstone.transportadora)
+        assertEquals("", tombstone.etiqueta)
+    }
+
+    @Test
+    fun `transportadora desconhecida na migracao cai para CORREIOS`() {
+        val v1 = """
+            {
+              "schemaVersion": 1,
+              "encomendas": [
+                {"codigo":"AA123456789BR","transportadora":"fedex","etiqueta":"Caixa","updatedAt":"2026-09-01T10:00:00Z"}
+              ],
+              "preferencias": []
+            }
+        """.trimIndent()
+
+        val migrado = SchemaBoxpace.migrarParaSchemaAtual(SchemaBoxpace.decodificar(v1))
+
+        assertEquals("CORREIOS", migrado.encomendas.single().transportadora)
+        assertEquals("Caixa", migrado.encomendas.single().etiqueta)
+    }
+
+    @Test
+    fun `arquivo ja atual nao e re-migrado`() {
+        val v2 = SchemaBoxpace.codificar(
+            BoxpaceArquivo(
+                schemaVersion = 2,
+                encomendas = listOf(SchemaBoxpace.encomendaParaRegistro(encomenda(etiqueta = "Fone"))),
+            ),
+        )
+
+        val migrado = SchemaBoxpace.migrarParaSchemaAtual(SchemaBoxpace.decodificar(v2))
+
+        assertEquals(2, migrado.schemaVersion)
+        assertEquals("Fone", migrado.encomendas.single().etiqueta)
+        assertEquals("CORREIOS", migrado.encomendas.single().transportadora)
+    }
+
+    @Test
+    fun `registroParaEncomenda aceita nome enum do canonico v2`() {
+        val v2 = """
+            {
+              "schemaVersion": 2,
+              "encomendas": [
+                {"codigo":"AA123456789BR","transportadora":"CORREIOS","etiqueta":"Fone",
+                 "updatedAt":"2026-09-01T10:00:00Z"}
+              ],
+              "preferencias": []
+            }
+        """.trimIndent()
+
+        val dominio = SchemaBoxpace.registroParaEncomenda(SchemaBoxpace.decodificar(v2).encomendas.single())
+
+        assertEquals(Transportadora.CORREIOS, dominio.transportadora)
+        assertEquals("Fone", dominio.etiqueta)
+        assertEquals("correios:AA123456789BR", dominio.id)
+    }
+
+    // --- dedup idempotente de eventos por data+descricao+unidade ---
+
+    @Test
+    fun `encomendaParaRegistro deduplica eventos mantendo ultima copia e ordem`() {
+        val original = Encomenda(
+            id = "correios:AA123456789BR",
+            codigo = "AA123456789BR",
+            transportadora = Transportadora.CORREIOS,
+            etiqueta = "Fone",
+            ultimoStatus = "postado",
+            eventos = listOf(
+                Evento("2026-09-01T10:00:00", "Objeto postado", cidade = "SP", uf = "SP", unidade = "AGF Centro"),
+                Evento("2026-09-01T12:00:00", "Em trânsito", cidade = "Campinas", uf = "SP", unidade = "CTE Campinas"),
+                Evento("2026-09-01T10:00:00", "Objeto postado", cidade = "São Paulo", uf = "SP", unidade = "AGF Centro"),
+                Evento("2026-09-01T10:00:00", "Objeto postado", cidade = "SP", uf = "SP", unidade = "AGF Oeste"),
+            ),
+            criadaEm = "2026-09-01T09:00:00Z",
+            atualizadaEm = "2026-09-01T13:00:00Z",
+        )
+
+        val eventos = SchemaBoxpace.encomendaParaRegistro(original).eventos
+
+        // a duplicata (mesma data+descricao+unidade) preserva a posição da primeira
+        // ocorrência mantendo o VALOR da última cópia (cidade "São Paulo");
+        // unidade diferente é evento distinto e permanece
+        assertEquals(3, eventos.size)
+        assertEquals("Objeto postado", eventos[0].descricao)
+        assertEquals("AGF Centro", eventos[0].unidade)
+        assertEquals("São Paulo", eventos[0].cidade)
+        assertEquals("Em trânsito", eventos[1].descricao)
+        assertEquals("AGF Oeste", eventos[2].unidade)
     }
 
     @Test

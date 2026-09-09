@@ -164,7 +164,9 @@ class CoordenadorDeSync(
                 // SCHEMA_MAIOR: não sobrescreve; aviso persistido; sync pausa
                 return CicloResultado.SucessoComAviso
             }
-            decodificado
+            // SCHEMA_MENOR: migra em memória antes de qualquer merge/LWW (a
+            // recusa de versão maior acima permanece intacta)
+            SchemaBoxpace.migrarParaSchemaAtual(decodificado)
         } else {
             // canônico ausente (AD-SYNC-4: ausente = vazio)
             BoxpaceArquivo()

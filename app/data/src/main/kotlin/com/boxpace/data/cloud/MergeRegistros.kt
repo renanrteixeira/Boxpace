@@ -37,18 +37,17 @@ object MergeRegistros {
                 is DeltaPendente.Salvar -> {
                     val registro = SchemaBoxpace.encomendaParaRegistro(delta.encomenda)
                         .copy(updatedAt = delta.criadoEm)
-                    upsertEncomenda(encomendas, delta.alvoId, registro)
+                    // identidade a partir do registro normalizado (CORREIOS|JT):
+                    // delta.alvoId traz o scraperId minúsculo (id do domínio)
+                    upsertEncomenda(encomendas, identidadeDe(registro), registro)
                 }
 
                 is DeltaPendente.Excluir -> {
                     val (scraperId, codigo) = alvoIdPara(delta.alvoId)
                     val sm = com.boxpace.domain.Transportadora.fromScraperId(scraperId)
                     sm?.let {
-                        upsertEncomenda(
-                            encomendas,
-                            delta.alvoId,
-                            SchemaBoxpace.tombstoneParaRegistro(codigo, it, delta.criadoEm),
-                        )
+                        val tombstone = SchemaBoxpace.tombstoneParaRegistro(codigo, it, delta.criadoEm)
+                        upsertEncomenda(encomendas, identidadeDe(tombstone), tombstone)
                     }
                 }
 
