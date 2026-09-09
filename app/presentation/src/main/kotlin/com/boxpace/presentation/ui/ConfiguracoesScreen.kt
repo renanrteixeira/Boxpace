@@ -66,6 +66,7 @@ fun ConfiguracoesScreen(
     val context = LocalContext.current
     val tema by viewModel.tema.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val avisoRestaurar by viewModel.avisoRestaurar.collectAsState()
     var notificarTransicoes by rememberSaveable { mutableStateOf(false) }
 
     // Inicializa o toggle a partir do estado real do WorkManager (persistido pelo OS).
@@ -206,6 +207,14 @@ fun ConfiguracoesScreen(
                 checked = false,
                 onCheckedChange = { if (it) solicitarVincular() },
                 acaoRotulo = "Vincular Google Drive",
+                aviso = avisoRestaurar,
+            )
+            SyncState.Restaurando -> ConfigRow(
+                titulo = "Restaurando…",
+                descricao = "Restaurando suas encomendas…",
+                checked = true,
+                onCheckedChange = null,
+                acaoRotulo = null,
             )
             SyncState.Sincronizando -> ConfigRow(
                 titulo = "Sincronizando…",
@@ -221,6 +230,9 @@ fun ConfiguracoesScreen(
                 onCheckedChange = null,
                 acaoRotulo = "Desvincular Drive",
                 onAcao = { viewModel.desvincular() },
+                acaoSecundariaRotulo = "Restaurar do Drive",
+                onAcaoSecundaria = { viewModel.restaurar() },
+                aviso = avisoRestaurar,
             )
             is SyncState.SincronizacaoEmPausa -> ConfigRow(
                 titulo = "Vinculado",
@@ -229,6 +241,9 @@ fun ConfiguracoesScreen(
                 onCheckedChange = null,
                 acaoRotulo = "Desvincular Drive",
                 onAcao = { viewModel.desvincular() },
+                acaoSecundariaRotulo = "Restaurar do Drive",
+                onAcaoSecundaria = { viewModel.restaurar() },
+                aviso = avisoRestaurar,
             )
             SyncState.SincronizacaoPerdida -> {
                 ConfigRow(
@@ -237,8 +252,10 @@ fun ConfiguracoesScreen(
                     checked = true,
                     onCheckedChange = null,
                     acaoRotulo = "Reconectar",
-                    // o picker reautoriza (token novo) e o coordenador retoma o re-merge
+                    // o picker reautoriza (token novo); o vínculo seguinte relê o canônico
+                    // e retoma no merge LWW — pull-only, nunca sobrescreve nada
                     onAcao = { solicitarVincular() },
+                    aviso = avisoRestaurar,
                 )
             }
         }
@@ -247,7 +264,8 @@ fun ConfiguracoesScreen(
 
 /**
  * Linha de configuração com texto de apoio e, opcionalmente, um switch ou um
- * botão de ação (vincular/desvincular/reconectar).
+ * botão de ação (vincular/desvincular/reconectar/restaurar). [aviso] é um
+ * alerta discreto exibido abaixo da ação quando não-nulo.
  */
 @Composable
 private fun ConfigRow(
@@ -257,6 +275,9 @@ private fun ConfigRow(
     onCheckedChange: ((Boolean) -> Unit)?,
     acaoRotulo: String? = null,
     onAcao: (() -> Unit)? = null,
+    acaoSecundariaRotulo: String? = null,
+    onAcaoSecundaria: (() -> Unit)? = null,
+    aviso: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
@@ -277,6 +298,16 @@ private fun ConfigRow(
         }
         if (acaoRotulo != null && onAcao != null) {
             TextButton(onClick = onAcao) { Text(acaoRotulo) }
+        }
+        if (acaoSecundariaRotulo != null && onAcaoSecundaria != null) {
+            TextButton(onClick = onAcaoSecundaria) { Text(acaoSecundariaRotulo) }
+        }
+        if (aviso != null) {
+            Text(
+                text = aviso,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

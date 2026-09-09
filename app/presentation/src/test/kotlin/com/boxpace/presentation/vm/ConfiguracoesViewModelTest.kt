@@ -75,14 +75,34 @@ class ConfiguracoesViewModelTest {
 
     class SincronizacaoRepoFake(
         var estado: SyncState = SyncState.Desvinculado,
+        var restaurarResultado: Boolean = true,
+        var vincularResultado: Boolean = true,
     ) : SincronizacaoRepository {
-        override val syncState: StateFlow<SyncState> = MutableStateFlow(estado)
+        var restaurarChamado = 0
+        var vincularChamado = 0
+        var desvincularChamado = 0
 
-        override suspend fun vincular(): Boolean = true
+        private val _syncState = MutableStateFlow(estado)
+        override val syncState: StateFlow<SyncState> = _syncState
 
-        override suspend fun desvincular(): Boolean = true
+        override suspend fun vincular(): Boolean {
+            vincularChamado++
+            return vincularResultado
+        }
+
+        override suspend fun desvincular(): Boolean {
+            desvincularChamado++
+            return true
+        }
 
         override suspend fun reconectar(): Boolean = true
+
+        override suspend fun restaurar(): Boolean {
+            restaurarChamado++
+            estado = if (restaurarResultado) SyncState.Vinculado else SyncState.Desvinculado
+            _syncState.value = estado
+            return restaurarResultado
+        }
     }
 
     private lateinit var preferenciasRepo: PreferenciasRepoFake
@@ -153,5 +173,66 @@ class ConfiguracoesViewModelTest {
         assertEquals(Tema.ESCURO, vm.tema.value)
         assertEquals(Tema.ESCURO, preferenciasRepo.preferencias.tema)
         assertTrue(encomendaRepo.deltas.isEmpty())
+    }
+
+    @Test
+    fun RESTAURAR_sucesso_delega_a_porta_e_nao_expoe_aviso() = runTest {
+        val vm = criarVm()
+        sincronizacaoRepo.restaurarResultado = true
+
+        vm.restaurar()
+
+        assertEquals(1, sincronizacaoRepo.restaurarChamado)
+        assertEquals(null, vm.avisoRestaurar.value)
+        assertEquals(SyncState.Vinculado, vm.syncState.value)
+    }
+
+    @Test
+    fun RESTAURAR_falha_expoe_aviso_discreto_sem_estado_restaurando() = runTest {
+        val vm = criarVm()
+        sincronizacaoRepo.restaurarResultado = false
+
+        vm.restaurar()
+
+        assertEquals(1, sincronizacaoRepo.restaurarChamado)
+        assertTrue(vm.avisoRestaurar.value != null, "falha deve expor aviso discreto")
+        assertEquals(SyncState.Desvinculado, vm.syncState.value)
+    }
+
+    @Test
+    fun VINCULAR_falha_expoe_aviso_e_delega_a_porta() = runTest {
+        val vm = criarVm()
+        sincronizacaoRepo.vincularResultado = false
+
+        vm.vincular()
+
+        assertEquals(1, sincronizacaoRepo.vincularChamado)
+        assertTrue(vm.avisoRestaurar.value != null, "vínculo mal-sucedido também deve expor aviso")
+    }
+
+    @Test
+    fun VINCULAR_sucesso_limpa_aviso_anterior() = runTest {
+        val vm = criarVm()
+        sincronizacaoRepo.restaurarResultado = false
+        vm.restaurar()
+        assertTrue(vm.avisoRestaurar.value != null)
+
+        sincronizacaoRepo.vincularResultado = true
+        vm.vincular()
+
+        assertEquals(null, vm.avisoRestaurar.value, "vínculo bem-sucedido limpa aviso anterior")
+    }
+
+    @Test
+    fun DESVINCULAR_limpa_aviso_anterior() = runTest {
+        val vm = criarVm()
+        sincronizacaoRepo.restaurarResultado = false
+        vm.restaurar()
+        assertTrue(vm.avisoRestaurar.value != null)
+
+        vm.desvincular()
+
+        assertEquals(1, sincronizacaoRepo.desvincularChamado)
+        assertEquals(null, vm.avisoRestaurar.value, "desvincular limpa aviso anterior")
     }
 }
