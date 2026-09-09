@@ -33,6 +33,9 @@ class ConfiguracoesViewModel(
     private val _tema = MutableStateFlow(Tema.SISTEMA)
     val tema: StateFlow<Tema> = _tema.asStateFlow()
 
+    private val _avisoRestaurar = MutableStateFlow<String?>(null)
+    val avisoRestaurar: StateFlow<String?> = _avisoRestaurar.asStateFlow()
+
     val syncState: StateFlow<SyncState> = sincronizacaoRepository.syncState
 
     init {
@@ -44,11 +47,33 @@ class ConfiguracoesViewModel(
 
     /** Autoriza o vínculo no picker (token entregue pelo launcher) e sincroniza. */
     fun vincular() {
-        viewModelScope.launch { sincronizacaoRepository.vincular() }
+        viewModelScope.launch {
+            val ok = sincronizacaoRepository.vincular()
+            _avisoRestaurar.value = if (ok) null else MENSAGEM_FALHA_RESTAURAR
+        }
     }
 
     fun desvincular() {
-        viewModelScope.launch { sincronizacaoRepository.desvincular() }
+        viewModelScope.launch {
+            _avisoRestaurar.value = null
+            sincronizacaoRepository.desvincular()
+        }
+    }
+
+    /**
+     * Restauração manual pull-only (Epic 5.2). O estado `Restaurando` vem da
+     * porta; em falha (sem rede/sem vínculo) expõe um aviso discreto uma vez e
+     * nunca deixa spinner congelado.
+     */
+    fun restaurar() {
+        viewModelScope.launch {
+            val ok = sincronizacaoRepository.restaurar()
+            _avisoRestaurar.value = if (ok) {
+                null
+            } else {
+                MENSAGEM_FALHA_RESTAURAR
+            }
+        }
     }
 
     fun reconectar() {
@@ -81,5 +106,10 @@ class ConfiguracoesViewModel(
         } catch (_: Exception) {
             // conservador: falha no registro de delta não deve derrubar a preferência
         }
+    }
+
+    private companion object {
+        const val MENSAGEM_FALHA_RESTAURAR =
+            "Não foi possível restaurar do Drive agora. Suas encomendas deste aparelho estão seguras."
     }
 }

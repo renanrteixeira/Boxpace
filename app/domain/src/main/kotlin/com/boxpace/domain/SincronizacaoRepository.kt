@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
  * usuário enxerga na seção de Configurações (AD-SYNC-7). Transições possíveis:
  *
  * - [Desvinculado] — "Encomendas só neste aparelho" (inicial / após desvincular).
+ * - [Restaurando] — restauração pull-only (canônico → Room) em voo.
  * - [Sincronizando] — ciclo read→merge→write→reconcile em voo.
  * - [Vinculado] — conta autorizada e sync operacional.
  * - [SincronizacaoPerdida] — token expirado/revogado; "Sincronização perdida — toque para reconectar".
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 sealed interface SyncState {
     data object Desvinculado : SyncState
+    data object Restaurando : SyncState
     data object Sincronizando : SyncState
     data object Vinculado : SyncState
     data object SincronizacaoPerdida : SyncState
@@ -42,6 +44,15 @@ interface SincronizacaoRepository {
      * Retorna `false` se o OAuth for negado — sem efeito (permanece desvinculado).
      */
     suspend fun vincular(): Boolean
+
+    /**
+     * Restaura do Drive (pull-only, AD-SYNC-5A/6A): lê o canônico → migra →
+     * merge LWW com deltas pendentes → espelha no Room. **Nunca** escreve no
+     * Drive e **não** limpa deltas (só o sync consome deltas — AD-SYNC-9).
+     * Durante o carregamento o estado fica [SyncState.Restaurando].
+     * Retorna `false` se sem token / rede indisponível / 401 — sem spinner preso.
+     */
+    suspend fun restaurar(): Boolean
 
     /** Desvincula: descarrega deltas pendentes, para o sync, volta a [SyncState.Desvinculado]. */
     suspend fun desvincular(): Boolean

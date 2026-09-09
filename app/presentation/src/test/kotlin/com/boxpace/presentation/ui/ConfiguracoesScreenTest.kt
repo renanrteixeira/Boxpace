@@ -79,14 +79,29 @@ class ConfiguracoesScreenTest {
         override suspend fun purgarFechadasAntigas(dias: Int) {}
     }
 
-    class SincronizacaoRepoFake : SincronizacaoRepository {
-        override val syncState: StateFlow<SyncState> = MutableStateFlow(SyncState.Desvinculado)
+    class SincronizacaoRepoFake(
+        var estado: SyncState = SyncState.Desvinculado,
+        var restaurarResultado: Boolean = true,
+    ) : SincronizacaoRepository {
+        var restaurarChamado = 0
+
+        private val _syncState = MutableStateFlow(estado)
+        override val syncState: StateFlow<SyncState> = _syncState
 
         override suspend fun vincular(): Boolean = true
 
         override suspend fun desvincular(): Boolean = true
 
         override suspend fun reconectar(): Boolean = true
+
+        override suspend fun restaurar(): Boolean {
+            restaurarChamado++
+            if (!restaurarResultado) {
+                estado = SyncState.Desvinculado
+                _syncState.value = estado
+            }
+            return restaurarResultado
+        }
     }
 
     @Before
@@ -142,5 +157,62 @@ class ConfiguracoesScreenTest {
 
         composeRule.waitForIdle()
         assertEquals(Tema.ESCURO, viewModel.tema.value)
+    }
+
+    @Test
+    fun UI_RESTAURANDO_exibe_mensagem_restaurando_encomendas() {
+        val viewModel = ConfiguracoesViewModel(
+            preferenciasRepository = PreferenciasRepoFake(),
+            encomendaRepository = EncomendaRepoFake(),
+            sincronizacaoRepository = SincronizacaoRepoFake(estado = SyncState.Restaurando),
+        )
+
+        composeRule.setContent {
+            ConfiguracoesScreen(onVoltar = {}, viewModel = viewModel)
+        }
+
+        composeRule.onNodeWithText("Restaurando suas encomendas…").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun UI_VINCULADO_botao_Restaurar_do_Drive_dispara_restaurar() {
+        val sinc = SincronizacaoRepoFake(estado = SyncState.Vinculado)
+        val viewModel = ConfiguracoesViewModel(
+            preferenciasRepository = PreferenciasRepoFake(),
+            encomendaRepository = EncomendaRepoFake(),
+            sincronizacaoRepository = sinc,
+        )
+
+        composeRule.setContent {
+            ConfiguracoesScreen(onVoltar = {}, viewModel = viewModel)
+        }
+
+        composeRule.onNodeWithText("Restaurar do Drive").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(1, sinc.restaurarChamado)
+    }
+
+    @Test
+    fun UI_FALHA_NO_RESTORE_vai_a_Desvinculado_e_exibe_aviso() {
+        val sinc = SincronizacaoRepoFake(estado = SyncState.Vinculado, restaurarResultado = false)
+        val viewModel = ConfiguracoesViewModel(
+            preferenciasRepository = PreferenciasRepoFake(),
+            encomendaRepository = EncomendaRepoFake(),
+            sincronizacaoRepository = sinc,
+        )
+
+        composeRule.setContent {
+            ConfiguracoesScreen(onVoltar = {}, viewModel = viewModel)
+        }
+
+        composeRule.onNodeWithText("Restaurar do Drive").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(1, sinc.restaurarChamado)
+        composeRule.onNodeWithText("Encomendas só neste aparelho").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Não foi possível restaurar do Drive agora. Suas encomendas deste aparelho estão seguras.",
+        ).performScrollTo().assertIsDisplayed()
     }
 }
