@@ -379,11 +379,105 @@ class CoordenadorDeSyncTest {
         assertTrue(repo.room.value.isEmpty(), "Room deve espelhar o canônico — sem fantasmas")
     }
 
+    // --- SCHEMA_MENOR: leitura de v1 migra para v2 na gravação (etiqueta + transportadora) ---
+
+    @Test
+    fun `leitura de canonico v1 grava v2 migrado`() = runTest {
+        val v1 = """
+            {
+              "schemaVersion": 1,
+              "encomendas": [
+                {"codigo":"AA123456789BR","transportadora":"correios",
+                 "updatedAt":"2026-09-01T12:00:00Z","ultimoStatus":"Objeto postado"}
+              ],
+              "preferencias": []
+            }
+        """.trimIndent()
+        val drive = DriveSimulado(initial = v1)
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+
+        assertTrue(coord.vincular())
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertEquals(2, arquivo.schemaVersion)
+        val registro = arquivo.encomendas.single()
+        assertFalse(registro.tombstone)
+        assertEquals("CORREIOS", registro.transportadora)
+        assertEquals("AA123456789BR", registro.etiqueta)
+    }
+
+    // --- E2E v1: canônico legado + deltas lowercase → v2 com identidade única, LWW e sem órfãos ---
+
+    @Test
+    fun `canonico v1 com deltas lowercase grava v2 com identidade unica e sem deltas orfaos`() = runTest {
+        val v1 = """
+            {
+              "schemaVersion": 1,
+              "encomendas": [
+                {"codigo":"AA123456789BR","transportadora":"correios",
+                 "updatedAt":"2026-09-01T10:00:00Z","ultimoStatus":"postado"},
+                {"codigo":"888123456789","transportadora":"jt",
+                 "updatedAt":"2026-09-01T10:00:00Z","ultimoStatus":"postado"}
+              ],
+              "preferencias": []
+            }
+        """.trimIndent()
+        val drive = DriveSimulado(initial = v1)
+        val repo = RepositorioFake().apply {
+            // Salvar mais recente que o canônico: deve vencer o LWW do correios
+            deltas += DeltaPendente.Salvar(
+                encomenda = encomenda(
+                    id = "correios:AA123456789BR",
+                    codigo = "AA123456789BR",
+                    transportadora = Transportadora.CORREIOS,
+                    etiqueta = "Fone novo",
+                    atualizadaEm = "2026-09-01T12:00:00Z",
+                ),
+                alvoId = "correios:AA123456789BR",
+                criadoEm = "2026-09-01T12:00:00Z",
+            )
+            // Excluir mais recente que o canônico: deve virar tombstone do jt
+            deltas += DeltaPendente.Excluir(
+                alvoId = "jt:888123456789",
+                criadoEm = "2026-09-01T12:00:00Z",
+            )
+        }
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+
+        assertTrue(coord.vincular())
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertEquals(2, arquivo.schemaVersion)
+
+        // identidade única por registro — sem duplicatas por divergência de case
+        val identidades = arquivo.encomendas.map { "${it.transportadora}:${it.codigo}" }
+        assertEquals(2, identidades.size)
+        assertEquals(2, identidades.distinct().size, "cada encomenda tem uma única identidade CORREIOS|JT:código")
+
+        // LWW: delta Salvar mais recente venceu, etiqueta e updatedAt são do delta
+        val vivo = arquivo.encomendas.single { !it.tombstone }
+        assertEquals("CORREIOS", vivo.transportadora)
+        assertEquals("AA123456789BR", vivo.codigo)
+        assertEquals("Fone novo", vivo.etiqueta)
+        assertEquals("2026-09-01T12:00:00Z", vivo.updatedAt)
+
+        // LWW: delta Excluir mais recente virou tombstone JT
+        val tombstone = arquivo.encomendas.single { it.tombstone }
+        assertEquals("JT", tombstone.transportadora)
+        assertEquals("888123456789", tombstone.codigo)
+        assertEquals("2026-09-01T12:00:00Z", tombstone.updatedAt)
+
+        assertTrue(repo.deltas.isEmpty(), "deltas processados não podem ficar órfãos")
+    }
+
     // --- SCHEMA_MAIOR: arquivo com schema mais novo não é sobrescrito; aviso persistido; sync pausa ---
 
     @Test
     fun `schema maior nao sobrescreve e sinaliza pausa com aviso`() = runTest {
-        val sinicial = """{"schemaVersion":2,"encomendas":[],"preferencias":[]}"""
+        val sinicial = """{"schemaVersion":3,"encomendas":[],"preferencias":[]}"""
         val drive = DriveSimulado(initial = sinicial)
         val repo = RepositorioFake().apply {
             deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
