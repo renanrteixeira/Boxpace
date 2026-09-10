@@ -26,6 +26,10 @@ venv/
 # Kotlin/Gradle build output (sem bloco build/ separado p/ módulos Java puros)
 bin/
 
+# Assinatura de release — segredos nunca vão pro git
+keystore.properties
+app/keystore/
+
 # OS
 .DS_Store
 
