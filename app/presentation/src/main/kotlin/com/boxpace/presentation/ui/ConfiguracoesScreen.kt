@@ -68,6 +68,7 @@ fun ConfiguracoesScreen(
     val tema by viewModel.tema.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
     val avisoRestaurar by viewModel.avisoRestaurar.collectAsState()
+    val avisoVincular by viewModel.avisoVincular.collectAsState()
     var notificarTransicoes by rememberSaveable { mutableStateOf(false) }
 
     // Inicializa o toggle a partir do estado real do WorkManager (persistido pelo OS).
@@ -199,7 +200,7 @@ fun ConfiguracoesScreen(
         val launcherPadrao = rememberVincularDriveLauncher(
             tokenOAuthProvider = tokenProvider,
             onVinculado = { viewModel.vincular() },
-            onFalha = { /* OAuth negado: permanece "Encomendas só neste aparelho" (vazio) */ },
+            onFalha = { viewModel.vincularFalhou() },
         )
         val solicitarVincularEfetivo = solicitarVincular ?: launcherPadrao
 
@@ -210,7 +211,7 @@ fun ConfiguracoesScreen(
                 checked = false,
                 onCheckedChange = { if (it) solicitarVincularEfetivo() },
                 acaoRotulo = "Vincular Google Drive",
-                aviso = avisoRestaurar,
+                aviso = avisoVincular ?: avisoRestaurar,
             )
             SyncState.Restaurando -> ConfigRow(
                 titulo = "Restaurando…",

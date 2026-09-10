@@ -36,6 +36,9 @@ class ConfiguracoesViewModel(
     private val _avisoRestaurar = MutableStateFlow<String?>(null)
     val avisoRestaurar: StateFlow<String?> = _avisoRestaurar.asStateFlow()
 
+    private val _avisoVincular = MutableStateFlow<String?>(null)
+    val avisoVincular: StateFlow<String?> = _avisoVincular.asStateFlow()
+
     val syncState: StateFlow<SyncState> = sincronizacaoRepository.syncState
 
     init {
@@ -49,8 +52,14 @@ class ConfiguracoesViewModel(
     fun vincular() {
         viewModelScope.launch {
             val ok = sincronizacaoRepository.vincular()
+            _avisoVincular.value = null
             _avisoRestaurar.value = if (ok) null else MENSAGEM_FALHA_RESTAURAR
         }
+    }
+
+    /** OAuth negado/cancelado antes de entregar o token (ex.: fingerprint do APK). */
+    fun vincularFalhou() {
+        _avisoVincular.value = MENSAGEM_FALHA_VINCULAR
     }
 
     fun desvincular() {
@@ -107,5 +116,7 @@ class ConfiguracoesViewModel(
     private companion object {
         const val MENSAGEM_FALHA_RESTAURAR =
             "Não foi possível restaurar do Drive agora. Suas encomendas deste aparelho estão seguras."
+        const val MENSAGEM_FALHA_VINCULAR =
+            "Não deu pra vincular agora. O Google rejeitou a autorização — confira se o SHA-1 deste APK está no cliente OAuth e tente de novo."
     }
 }

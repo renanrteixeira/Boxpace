@@ -1,6 +1,9 @@
 package com.boxpace.presentation.ui
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,7 +32,9 @@ fun rememberVincularDriveLauncher(
     onFalha: () -> Unit,
 ): () -> Unit {
     val context = LocalContext.current
-    val activity = context as? Activity
+    // No Compose o [LocalContext] pode ser um `ContextThemeWrapper`, não a
+    // Activity — desembrulha para a Activity real (a authorize exige Activity).
+    val activity = remember(context) { context.encontrarAtividade() }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
@@ -44,9 +49,11 @@ fun rememberVincularDriveLauncher(
                     tokenOAuthProvider.fornecer(token)
                     onVinculado()
                 } else {
+                    Log.w(TAG, "OAuth sem token no resultado")
                     onFalha()
                 }
-            } catch (_: ApiException) {
+            } catch (e: ApiException) {
+                Log.w(TAG, "OAuth rejeitado pelo Google ${e.status}", e)
                 onFalha()
             }
         } else {
@@ -58,6 +65,7 @@ fun rememberVincularDriveLauncher(
         {
             val act = activity
             if (act == null) {
+                Log.e(TAG, "Activity não encontrada a partir do contexto")
                 onFalha()
                 return@remember
             }
@@ -70,21 +78,40 @@ fun rememberVincularDriveLauncher(
                     if (r.hasResolution()) {
                         r.pendingIntent?.let { pi ->
                             launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                        } ?: onFalha()
+                        } ?: run {
+                            Log.w(TAG, "OAuth pediu resolução sem IntentSender")
+                            onFalha()
+                        }
                     } else {
                         val token = r.accessToken
                         if (!token.isNullOrBlank()) {
                             tokenOAuthProvider.fornecer(token)
                             onVinculado()
                         } else {
+                            Log.w(TAG, "OAuth resolveu sem token")
                             onFalha()
                         }
                     }
                 }
-                .addOnFailureListener { onFalha() }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "authorize falhou", e)
+                    onFalha()
+                }
         }
     }
 }
 
 /** Escopo exclusivo do App Data Folder do Drive (`drive.appdata`). */
 private const val SCOPE_DRIVE_APPDATA = "https://www.googleapis.com/auth/drive.appdata"
+
+private const val TAG = "VincularDrive"
+
+/** Desembrulha [ContextWrapper] iterativo para a [Activity] raiz (ou null). */
+private fun Context.encontrarAtividade(): Activity? {
+    var atual: Context? = this
+    while (atual is ContextWrapper) {
+        if (atual is Activity) return atual
+        atual = atual.baseContext
+    }
+    return null
+}
