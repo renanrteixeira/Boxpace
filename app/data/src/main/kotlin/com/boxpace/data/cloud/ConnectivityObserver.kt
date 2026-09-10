@@ -24,12 +24,11 @@ class ConnectivityObserver(context: Context) {
     private val _conectado = MutableStateFlow(estaConectado())
     val conectado: StateFlow<Boolean> = _conectado
 
-    /** Emite `true` quando uma rede com internet fica disponível. */
+    /** Emite `true` quando uma rede validada com internet fica disponível. */
     val reconexao: Flow<Boolean> = callbackFlow {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                _conectado.value = true
-                trySend(true)
+                // deixa onCapabilitiesChanged decidir: conectado exige internet E validação
             }
 
             override fun onLost(network: Network) {
@@ -37,9 +36,12 @@ class ConnectivityObserver(context: Context) {
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                val temInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                if (temInternet && !_conectado.value) trySend(true)
-                _conectado.value = temInternet
+                val valida = conexaoValida(
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                )
+                if (valida && !_conectado.value) trySend(true)
+                _conectado.value = valida
             }
         }
         val request = NetworkRequest.Builder()
@@ -52,6 +54,18 @@ class ConnectivityObserver(context: Context) {
     private fun estaConectado(): Boolean {
         val rede = connectivityManager.activeNetwork ?: return false
         val caps = connectivityManager.getNetworkCapabilities(rede) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return conexaoValida(
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+        )
+    }
+
+    companion object {
+        /**
+         * Decisão pura de conectividade (D-1): internet presente **e** validada —
+         * só tráfego que o Android validou é tratado como conectado pelo sync.
+         */
+        internal fun conexaoValida(hasInternet: Boolean, hasValidated: Boolean): Boolean =
+            hasInternet && hasValidated
     }
 }

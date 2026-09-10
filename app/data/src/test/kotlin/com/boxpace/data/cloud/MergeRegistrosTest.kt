@@ -370,4 +370,34 @@ class MergeRegistrosTest {
         assertTrue(MergeRegistros.maisRecente("2026-09-01T12:00:00Z", "2026-09-01T09:00:00Z"))
         assertFalse(MergeRegistros.maisRecente("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z"))
     }
+
+    // --- C-1: probesia tolerante da versão de schema quando o decode quebra ---
+
+    @Test
+    fun `probearSchemaVersion le schemaVersion sem decodificar o corpo`() {
+        assertEquals(2, SchemaBoxpace.probearSchemaVersion("""{"schemaVersion":2}"""))
+        assertEquals(99, SchemaBoxpace.probearSchemaVersion("""{"schemaVersion":99}"""))
+    }
+
+    @Test
+    fun `probearSchemaVersion retorna null para conteudo que nao expoe schemaVersion`() {
+        assertNull(SchemaBoxpace.probearSchemaVersion("""[1,2,3]"""))
+        assertNull(SchemaBoxpace.probearSchemaVersion("""{"schemas":2}"""))
+        assertNull(SchemaBoxpace.probearSchemaVersion("""{"schemaVersion":"maior"}"""))
+    }
+
+    @Test
+    fun `probearSchemaVersion nunca lanca em conteudo quebrado`() {
+        assertNull(SchemaBoxpace.probearSchemaVersion("{{{nao-e-json"))
+        assertNull(SchemaBoxpace.probearSchemaVersion(""))
+    }
+
+    @Test
+    fun `probearSchemaVersion detecta schema maior em corpo que o decode recusa`() {
+        // `{"schemaVersion":99}` é JSON válido, mas o decode do BoxpaceArquivo quebra
+        // (faltam encomendas/preferencias) — a probesia ainda vê a versão maior.
+        val corpoIndecodificavel = """{"schemaVersion":99}"""
+        val versao = SchemaBoxpace.probearSchemaVersion(corpoIndecodificavel)
+        assertTrue(versao != null && versao > SchemaBoxpace.SCHEMA_VERSION)
+    }
 }

@@ -33,7 +33,24 @@ interface EncomendaRepository {
 
     suspend fun registrarDeltaPendente(delta: DeltaPendente)
     suspend fun listarDeltasPendentes(): List<DeltaPendente>
+
+    /** Esvazia toda a fila de deltas pendentes (uso legado/testes — o sync usa o overload por lote). */
     suspend fun limparDeltasPendentes()
+
+    /**
+     * Remove **apenas os deltas do lote [deltas]** (por marcador
+     * `alvoId`+`tipo`+`criadoEm`) — o sync só consome o que processou no ciclo
+     * atual; deltas que chegarem durante o ciclo permanecem pendentes para a
+     * próxima rodada (AD-SYNC-9). Retorna o nº de registros removidos.
+     */
+    suspend fun limparDeltasPendentes(deltas: List<DeltaPendente>): Int = 0
+
+    /**
+     * Remove o espelho local de [id] (ex.: fantasma frente ao canônico) **sem**
+     * registrar `DeltaPendente.Excluir` nem disparar sync — não é exclusão do
+     * usuário, apenas reconciliação do espelho (AD-SYNC-9).
+     */
+    suspend fun removerEspelho(id: String) {}
 
     /** Apaga do armazenamento local Fechados com `fechadaEm` mais antigo que [dias]. */
     suspend fun purgarFechadasAntigas(dias: Int)

@@ -2,10 +2,11 @@ package com.boxpace.data.cloud
 
 import com.boxpace.domain.DeltaPendente
 import com.boxpace.domain.EncomendaRepository
+import com.boxpace.domain.Preferencias
 import com.boxpace.domain.PreferenciasRepository
 import com.boxpace.domain.SincronizacaoRepository
 import com.boxpace.domain.SyncState
-import java.time.Instant
+import com.boxpace.domain.Tema
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -166,9 +167,17 @@ class CoordenadorDeSync(
     override suspend fun desvincular(): Boolean {
         return mutex.withLock {
             val autorizadoEvinculado = tokenProvider.atual() != null && vinculado.get()
-            if (autorizadoEvinculado && !despejarDeltas()) {
-                // descarga falhou: aborta para não perder deltas (AC Desvincular)
-                return@withLock false
+            if (autorizadoEvinculado) {
+                // descarrega os deltas antes do desvínculo. NaoAutorizado (token já
+                // morto/revogado) NÃO aborta: desvincula do mesmo jeito — os deltas
+                // ficam seguros localmente. Falha/ESCRITA_VENCIDA abortam p/ nada se perder.
+                val resultado = despejarDeltas()
+                if (resultado != CicloResultado.Sucesso &&
+                    resultado != CicloResultado.SucessoComAviso &&
+                    resultado != CicloResultado.NaoAutorizado
+                ) {
+                    return@withLock false
+                }
             }
             vinculado.set(false)
             tokenProvider.limpar()
@@ -239,7 +248,13 @@ class CoordenadorDeSync(
         val decodificado = try {
             SchemaBoxpace.decodificar(leitura.conteudo)
         } catch (_: Exception) {
-            // arquivo ilegível: não sobrescreve às cegas; falha discreta
+            // corpo ilegível: se a versão declarada é MAIOR que a suportada, o
+            // arquivo veio de um app mais novo (corpo incompatível) → pausa sem
+            // falha; caso contrário falha discreta (nunca sobrescrever às cegas).
+            val versao = SchemaBoxpace.probearSchemaVersion(leitura.conteudo)
+            if (versao != null && versao > SchemaBoxpace.SCHEMA_VERSION) {
+                return LeituraCanonico.SchemaMaior
+            }
             return LeituraCanonico.Falha
         }
         if (decodificado.schemaVersion > SchemaBoxpace.SCHEMA_VERSION) {
@@ -264,17 +279,20 @@ class CoordenadorDeSync(
 
         // 2) merge LWW: base + deltas pendentes (promoção no primeiro vínculo)
         val deltas = encomendaRepository.listarDeltasPendentes()
+        val locaisDePreferencias = preferenciasLocais()
         val isPromocao = ok.arquivo == null && (motivo == Motivo.PRIMEIRO_VINCULO || vinculado.get())
-        val candidato = if (isPromocao) {
+        val candidatoBase = if (isPromocao) {
             // promoção: canônico ∅ → importa o cache local + drena deltas (LWW; tombstones dos Excluir)
-            val local = MergeRegistros.mergeArquivos(
-                MergeRegistros.promover(encomendaRepository.listar()),
+            MergeRegistros.mergeArquivos(
+                MergeRegistros.promover(encomendaRepository.listar(), locaisDePreferencias),
                 MergeRegistros.aplicarDeltas(BoxpaceArquivo(), deltas),
             )
-            local
         } else {
             MergeRegistros.aplicarDeltas(ok.canonico, deltas)
         }
+        // B-1/B-3: a preferência local ativa (mais nova que a do canônico) prevalece no ciclo;
+        // se o local estiver desatualizado, o vencedor LWW continua sendo o mais recente.
+        val candidato = MergeRegistros.combinarPreferenciasVivas(candidatoBase, locaisDePreferencias)
 
         // 3) write: arquivo presente → atualiza com a metadata da leitura; ausente → cria
         val conteudo = SchemaBoxpace.codificar(candidato)
@@ -308,16 +326,22 @@ class CoordenadorDeSync(
             return CicloResultado.ESCRITA_VENCIDA
         }
 
-        // sucesso confirmado: remove os deltas processados e espelha o canônico no Room
-        encomendaRepository.limparDeltasPendentes()
+        // sucesso confirmado: remove SÓ os deltas do lote processado (os que chegarem
+        // durante o ciclo ficam pendentes p/ a próxima rodada — AD-SYNC-9) e espelha
+        // o canônico no Room.
+        encomendaRepository.limparDeltasPendentes(deltas)
         reconciliarRoom(candidato)
         return CicloResultado.Sucesso
     }
 
     private suspend fun reconciliarRoom(canonico: BoxpaceArquivo) {
-        // ids com delta pendente (chegados durante o ciclo) não sofrem espelhação
-        val protegidos = encomendaRepository.listarDeltasPendentes()
-            .filterIsInstance<DeltaPendente.Salvar>()
+        // ids COM tombstone em voo (Excluir pendente) não sofrem espelhação: nem são
+        // salvos nem removidos do Room — o tombstone ainda pode estar para materializar
+        // (A-2). Deltas Salvar pendentes JÁ estão no merge (candidato) e o espelho pode
+        // (e deve) gravá-los: um Salvar em voo não é remoção, é a versão mais nova.
+        val pendentes = encomendaRepository.listarDeltasPendentes()
+        val protegidos = pendentes
+            .filterIsInstance<DeltaPendente.Excluir>()
             .map { it.alvoId }
             .toSet()
 
@@ -325,24 +349,55 @@ class CoordenadorDeSync(
             .filterNot { it.tombstone }
             .mapNotNull { runCatching { SchemaBoxpace.registroParaEncomenda(it) }.getOrNull() }
 
-        vivos.forEach { encomenda ->
-            runCatching { encomendaRepository.salvar(encomenda) }
-        }
+        vivos
+            .filterNot { it.id in protegidos }
+            .forEach { encomenda ->
+                runCatching { encomendaRepository.salvar(encomenda) }
+            }
 
         // espelha o canônico (AD-SYNC-9): remove fantasmas locais ausentes do
         // canônico (ex.: tombstone vindo da exclusão feita em outro aparelho).
+        // removerEspelho não registra Excluir — é reconciliação de espelho, não
+        // exclusão do usuário (A-3).
         val idsCanonico = vivos.map { it.id }.toSet()
         encomendaRepository.listar()
             .filter { it.id !in idsCanonico && it.id !in protegidos }
             .forEach { fantasma ->
-                runCatching { encomendaRepository.excluir(fantasma.id, Instant.now().toString()) }
+                runCatching { encomendaRepository.removerEspelho(fantasma.id) }
+            }
+
+        // B-2: espelha as preferências do canônico para o repositório local —
+        // pulando chaves com `SalvarPreferencia` pendente (mid-cycle) e só
+        // escrevendo quando o canônico é estritamente mais novo que o local.
+        val chavesComDeltaPendente = pendentes
+            .filterIsInstance<DeltaPendente.SalvarPreferencia>()
+            .map { it.alvoId }
+            .toSet()
+        val preferenciasLocais = preferenciasRepository.carregar()
+        canonico.preferencias
+            .filterNot { it.chave in chavesComDeltaPendente }
+            .forEach { registro ->
+                val nova = Preferencias(tema = Tema.fromId(registro.valor), updatedAt = registro.updatedAt)
+                if (MergeRegistros.maisRecente(nova.updatedAt, preferenciasLocais.updatedAt)) {
+                    runCatching { preferenciasRepository.salvar(nova) }
+                }
             }
     }
 
-    private suspend fun despejarDeltas(): Boolean {
-        val resultado = cicloTentativa(Motivo.DESVINCULAR, lerCanonico())
-        return resultado == CicloResultado.Sucesso || resultado == CicloResultado.SucessoComAviso
+    /**
+     * Preferências locais em forma de registros canônicos (B-1/B-3). Vazio
+     * enquanto `updatedAt` nunca foi preenchido — sem preferência escrita não há
+     * o que promover/casar.
+     */
+    private suspend fun preferenciasLocais(): List<RegistroPreferencia> {
+        val preferencias = preferenciasRepository.carregar()
+        if (preferencias.updatedAt.isBlank()) return emptyList()
+        return listOf(MergeRegistros.preferenciaParaRegistro("preferencias:tema", preferencias))
     }
+
+    /** Descarrega os deltas pendentes (um ciclo completo) retornando o resultado do ciclo. */
+    private suspend fun despejarDeltas(): CicloResultado =
+        cicloTentativa(Motivo.DESVINCULAR, lerCanonico())
 
     private enum class Motivo { PRIMEIRO_VINCULO, DELTAS, RECONECTAR, DESVINCULAR }
 

@@ -5,6 +5,9 @@ import com.boxpace.domain.Evento
 import com.boxpace.domain.Transportadora
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Serialização única do arquivo canônico `boxpace.json` no App Data Folder
@@ -35,6 +38,18 @@ object SchemaBoxpace {
 
     fun codificar(arquivo: BoxpaceArquivo): String =
         json.encodeToString(BoxpaceArquivo.serializer(), arquivo)
+
+    /**
+     * Probesia tolerante da versão de schema (C-1): lê apenas `schemaVersion` da
+     * raiz do conteúdo **sem decodificá-lo** — usado quando o decode quebrou.
+     * Devolve `null` se não for um objeto JSON ou a chave não for inteiro; nunca lança.
+     */
+    fun probearSchemaVersion(conteudo: String): Int? = try {
+        val raiz = Json.parseToJsonElement(conteudo) as? JsonObject ?: return null
+        raiz["schemaVersion"]?.jsonPrimitive?.intOrNull
+    } catch (_: Exception) {
+        null
+    }
 
     /**
      * Migra um arquivo para a forma atual (v2), **em memória, antes de qualquer

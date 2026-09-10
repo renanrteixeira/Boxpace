@@ -346,4 +346,53 @@ class EncomendaLocalRepositoryTest {
         assertTrue(deltas.all { it is DeltaPendente.Excluir })
         assertTrue(deltas.any { it.alvoId == enc.id && it.criadoEm == "2026-09-01T12:00:00Z" })
     }
+
+    @Test
+    fun LIMPEZA_POR_LOTE_remove_apenas_o_marcador_do_lote_e_preserva_o_mid_cycle() = runBlocking {
+        val repo = repositorio()
+        val lote = listOf(
+            DeltaPendente.Salvar(encomenda("AA111111111BR"), "correios:AA111111111BR", "2026-09-01T10:00:00Z"),
+            DeltaPendente.Salvar(encomenda("AA222222222BR"), "correios:AA222222222BR", "2026-09-01T11:00:00Z"),
+        )
+        lote.forEach { repo.registrarDeltaPendente(it) }
+        // chegaram "durante o ciclo": um Excluir e um SalvarPreferencia com o mesmo alvoId? não — alvos distintos
+        repo.registrarDeltaPendente(
+            DeltaPendente.Excluir("correios:AA333333333BR", "2026-09-01T12:00:00Z"),
+        )
+        repo.registrarDeltaPendente(
+            DeltaPendente.SalvarPreferencia(
+                preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:30:00Z"),
+                alvoId = "preferencias:tema",
+                criadoEm = "2026-09-01T12:30:00Z",
+            ),
+        )
+
+        val removidos = repo.limparDeltasPendentes(lote)
+
+        assertEquals("só o lote do ciclo é consumido", 2, removidos)
+        val deltas = repo.listarDeltasPendentes()
+        assertEquals("deltas mid-cycle permanecem pendentes (AD-SYNC-9)", 2, deltas.size)
+        assertTrue(deltas.any { it.criadoEm == "2026-09-01T12:00:00Z" && it is DeltaPendente.Excluir })
+        assertTrue(deltas.any { it.criadoEm == "2026-09-01T12:30:00Z" && it is DeltaPendente.SalvarPreferencia })
+    }
+
+    @Test
+    fun REMOVER_ESPELHO_remove_fantasma_sem_registrar_Excluir_e_cancela_deltas_do_alvo() = runBlocking {
+        val repo = repositorio()
+        val fantasma = encomenda("AA111111111BR")
+        repo.salvar(fantasma)
+        repo.registrarDeltaPendente(
+            DeltaPendente.Salvar(encomenda = fantasma, alvoId = fantasma.id, criadoEm = "2026-09-01T10:00:00Z"),
+        )
+
+        repo.removerEspelho(fantasma.id)
+
+        // fantasma sumiu do Room sem resíduo
+        assertNull(repo.buscarPorId(fantasma.id))
+        assertTrue(repo.listar().none { it.id == fantasma.id })
+        // reconciliação de espelho não é exclusão do usuário: nenhum tombstone nasce
+        assertTrue(repo.listarDeltasPendentes().none { it is DeltaPendente.Excluir })
+        // e os deltas em voo daquele alvo são cancelados (não podem re-materializar o fantasma)
+        assertEquals(emptyList<DeltaPendente>(), repo.listarDeltasPendentes())
+    }
 }

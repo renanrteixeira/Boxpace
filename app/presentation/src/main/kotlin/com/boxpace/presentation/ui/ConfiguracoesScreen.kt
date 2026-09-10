@@ -62,6 +62,7 @@ fun ConfiguracoesScreen(
     onVoltar: () -> Unit,
     viewModel: ConfiguracoesViewModel,
     modifier: Modifier = Modifier,
+    solicitarVincular: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val tema by viewModel.tema.collectAsState()
@@ -192,20 +193,22 @@ fun ConfiguracoesScreen(
             style = MaterialTheme.typography.titleMedium,
         )
 
-        // Launcher do picker OAuth; entrega o token (memória) ao coordenador.
+        // Launcher do picker OAuth; entrega o token (memória) ao coordenador. Em teste,
+        // [solicitarVincular] injeta o disparo (contorno determinístico do OAuth).
         val tokenProvider = remember(context) { com.boxpace.data.di.DataModule.provideTokenOAuthProvider() }
-        val solicitarVincular = rememberVincularDriveLauncher(
+        val launcherPadrao = rememberVincularDriveLauncher(
             tokenOAuthProvider = tokenProvider,
             onVinculado = { viewModel.vincular() },
             onFalha = { /* OAuth negado: permanece "Encomendas só neste aparelho" (vazio) */ },
         )
+        val solicitarVincularEfetivo = solicitarVincular ?: launcherPadrao
 
         when (val estado = syncState) {
             SyncState.Desvinculado -> ConfigRow(
                 titulo = "Encomendas só neste aparelho",
                 descricao = "Vincule sua conta Google para sincronizar seus dados na nuvem.",
                 checked = false,
-                onCheckedChange = { if (it) solicitarVincular() },
+                onCheckedChange = { if (it) solicitarVincularEfetivo() },
                 acaoRotulo = "Vincular Google Drive",
                 aviso = avisoRestaurar,
             )
@@ -254,7 +257,7 @@ fun ConfiguracoesScreen(
                     acaoRotulo = "Reconectar",
                     // o picker reautoriza (token novo); o vínculo seguinte relê o canônico
                     // e retoma no merge LWW — pull-only, nunca sobrescreve nada
-                    onAcao = { solicitarVincular() },
+                    onAcao = { solicitarVincularEfetivo() },
                     aviso = avisoRestaurar,
                 )
             }

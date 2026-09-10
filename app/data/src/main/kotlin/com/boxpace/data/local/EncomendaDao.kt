@@ -64,6 +64,13 @@ interface DeltaPendenteDao {
     @Query("DELETE FROM deltasPendentes WHERE alvoId = :alvoId")
     suspend fun excluirPorAlvoId(alvoId: String): Int
 
+    /**
+     * Apaga apenas deltas com o marcador exato (`alvoId`+`tipo`+`criadoEm`) —
+     * limpeza do lote do ciclo; deltas que chegarem durante o ciclo ficam (AD-SYNC-9).
+     */
+    @Query("DELETE FROM deltasPendentes WHERE alvoId = :alvoId AND tipo = :tipo AND criadoEm = :criadoEm")
+    suspend fun excluirPorMarcador(alvoId: String, tipo: String, criadoEm: String): Int
+
     @Delete
     suspend fun excluir(delta: DeltaPendenteEntity)
 }
