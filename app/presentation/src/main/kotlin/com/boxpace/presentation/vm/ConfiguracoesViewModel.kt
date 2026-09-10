@@ -21,7 +21,7 @@ import java.time.Instant
  * e o estado de sincronização com o Google Drive (Epic 5).
  *
  * [syncState] vem reativamente da porta [SincronizacaoRepository]. As ações
- * [vincular]/[desvincular]/[reconectar] delegam ao coordenador em `data/cloud`.
+ * [vincular]/[desvincular] delegam ao coordenador em `data/cloud`.
  */
 class ConfiguracoesViewModel(
     private val preferenciasRepository: PreferenciasRepository,
@@ -74,10 +74,6 @@ class ConfiguracoesViewModel(
                 MENSAGEM_FALHA_RESTAURAR
             }
         }
-    }
-
-    fun reconectar() {
-        viewModelScope.launch { sincronizacaoRepository.reconectar() }
     }
 
     fun alternarTema(novoTema: Tema) {

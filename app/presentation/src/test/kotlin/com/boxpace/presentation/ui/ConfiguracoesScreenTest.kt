@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -214,5 +215,29 @@ class ConfiguracoesScreenTest {
         composeRule.onNodeWithText(
             "Não foi possível restaurar do Drive agora. Suas encomendas deste aparelho estão seguras.",
         ).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun UI_PERDIDA_Reconectar_dispara_o_vinculo_OAuth() {
+        val sinc = SincronizacaoRepoFake(estado = SyncState.SincronizacaoPerdida)
+        val viewModel = ConfiguracoesViewModel(
+            preferenciasRepository = PreferenciasRepoFake(),
+            encomendaRepository = EncomendaRepoFake(),
+            sincronizacaoRepository = sinc,
+        )
+        var vinculoSolicitado = false
+
+        composeRule.setContent {
+            ConfiguracoesScreen(
+                onVoltar = {},
+                viewModel = viewModel,
+                solicitarVincular = { vinculoSolicitado = true },
+            )
+        }
+
+        composeRule.onNodeWithText("Reconectar").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        assertTrue("Reconectar deve disparar o vínculo (picker OAuth) no estado Perdida", vinculoSolicitado)
     }
 }

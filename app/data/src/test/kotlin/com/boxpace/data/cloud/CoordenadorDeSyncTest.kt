@@ -46,6 +46,13 @@ class CoordenadorDeSyncTest {
     private class RepositorioFake : EncomendaRepository {
         val room = MutableStateFlow<List<Encomenda>>(emptyList())
         val deltas = mutableListOf<DeltaPendente>()
+
+        /** Registro de toda chamada a `salvar` — distingue espelho real de ressuscitação (A-2). */
+        val salvos = mutableListOf<Encomenda>()
+
+        /** Registro de remoções via `removerEspelho` — reconciliação sem tombstone (A-3). */
+        val espelhosRemovidos = mutableListOf<String>()
+
         var falharEmLimpar = false
 
         /** Quando setado, lança em `listarDeltasPendentes` — simula falha dentro do restore. */
@@ -56,6 +63,7 @@ class CoordenadorDeSyncTest {
 
         override fun observar(): Flow<List<Encomenda>> = room
         override suspend fun salvar(encomenda: Encomenda) {
+            salvos += encomenda
             room.value = listOf(encomenda) + room.value.filterNot { it.id == encomenda.id }
         }
         override suspend fun salvarComDelta(encomenda: Encomenda): Boolean {
@@ -70,6 +78,9 @@ class CoordenadorDeSyncTest {
         override suspend fun listarFechadas(): List<Encomenda> = room.value.filter { it.fechadaEm != null }
         override suspend fun excluir(id: String, criadoEm: String) {
             room.value = room.value.filterNot { it.id == id }
+            // espelha a semântica do repositório real: exclusão do usuário registra o
+            // tombstone Excluir (distingue de removerEspelho, que não registra nada)
+            deltas += DeltaPendente.Excluir(alvoId = id, criadoEm = criadoEm)
         }
         override suspend fun registrarDeltaPendente(delta: DeltaPendente) { deltas += delta }
         override suspend fun listarDeltasPendentes(): List<DeltaPendente> {
@@ -79,6 +90,33 @@ class CoordenadorDeSyncTest {
         override suspend fun limparDeltasPendentes() {
             if (falharEmLimpar) throw RuntimeException("limpar falhou")
             deltas.clear()
+            reinjetar()
+        }
+
+        // limpeza do lote do ciclo (AD-SYNC-9): remove APENAS os deltas do marcador
+        // (alvoId+tipo+criadoEm) do lote processado; os que chegarem ficam (A-1).
+        override suspend fun limparDeltasPendentes(deltas: List<DeltaPendente>): Int {
+            if (falharEmLimpar) throw RuntimeException("limpar falhou")
+            val antes = this.deltas.size
+            this.deltas.removeAll { delta ->
+                deltas.any { lote ->
+                    lote.alvoId == delta.alvoId &&
+                        tipoDeDelta(lote) == tipoDeDelta(delta) &&
+                        lote.criadoEm == delta.criadoEm
+                }
+            }
+            val removidos = antes - this.deltas.size
+            reinjetar()
+            return removidos
+        }
+
+        override suspend fun removerEspelho(id: String) {
+            espelhosRemovidos += id
+            room.value = room.value.filterNot { it.id == id }
+            deltas.removeAll { it.alvoId == id }
+        }
+
+        private fun reinjetar() {
             val delta = reinjetarDelta
             if (delta != null) {
                 reinjetarDelta = null
@@ -88,10 +126,14 @@ class CoordenadorDeSyncTest {
         override suspend fun purgarFechadasAntigas(dias: Int) {}
     }
 
-    private class PrefsFake : PreferenciasRepository {
-        override suspend fun carregar(): Preferencias =
-            Preferencias(tema = Tema.SISTEMA, updatedAt = "2026-09-01T00:00:00Z")
-        override suspend fun salvar(preferencias: Preferencias) {}
+    private class PrefsFake(
+        var preferencias: Preferencias = Preferencias(),
+    ) : PreferenciasRepository {
+        override suspend fun carregar(): Preferencias = preferencias
+
+        override suspend fun salvar(preferencias: Preferencias) {
+            this.preferencias = preferencias
+        }
     }
 
     /** Simula o App Data Folder: guarda conteúdo/revisão e responde REST. */
@@ -99,30 +141,37 @@ class CoordenadorDeSyncTest {
         var conteudo: String? = initial
         var revisao: Int = 0
 
+        /** Quando setado, responde qualquer requisição com este status — falha forçada (E-1). */
+        var falhaStatus: HttpStatusCode? = null
+
+        /** Executado após cada gravação (criar/atualizar) — simula mutação mid-cycle (A-1/A-2). */
+        var aposGravacao: (() -> Unit)? = null
+
         fun engine(): MockEngine = MockEngine { request ->
-            when (request.method) {
-                HttpMethod.Get -> {
-                    when {
-                        request.url.parameters.contains("alt") ->
-                            conteudo?.let { respondJson(it) }
-                                ?: respondJson("", HttpStatusCode.NotFound)
-                        request.url.parameters.contains("q") -> {
-                            // listagem (spaces + q + fields=files(...))
-                            val files = if (conteudo == null) "[]"
-                            else """[{"id":"FILE_ID","name":"${SchemaBoxpace.NOME_ARQUIVO}","headRevisionId":"rev-$revisao"}]"""
-                            respondJson("""{"files":$files}""")
-                        }
-                        else -> respondJson("""{"headRevisionId":"rev-$revisao"}""") // metadata (fields=headRevisionId)
+            when {
+                falhaStatus != null -> respondJson("""{"error":"forced"}""", falhaStatus!!)
+                request.method == HttpMethod.Get -> when {
+                    request.url.parameters.contains("alt") ->
+                        conteudo?.let { respondJson(it) }
+                            ?: respondJson("", HttpStatusCode.NotFound)
+                    request.url.parameters.contains("q") -> {
+                        // listagem (spaces + q + fields=files(...))
+                        val files = if (conteudo == null) "[]"
+                        else """[{"id":"FILE_ID","name":"${SchemaBoxpace.NOME_ARQUIVO}","headRevisionId":"rev-$revisao"}]"""
+                        respondJson("""{"files":$files}""")
                     }
+                    else -> respondJson("""{"headRevisionId":"rev-$revisao"}""") // metadata (fields=headRevisionId)
                 }
-                HttpMethod.Post -> {
+                request.method == HttpMethod.Post -> {
                     revisao++
                     conteudo = capturarCorpoMultipart(request)
+                    aposGravacao?.invoke()
                     respondJson("""{"id":"FILE_ID","name":"${SchemaBoxpace.NOME_ARQUIVO}"}""", HttpStatusCode.OK)
                 }
-                HttpMethod.Patch -> {
+                request.method == HttpMethod.Patch -> {
                     revisao++
                     conteudo = request.body.toByteArray().decodeToString()
+                    aposGravacao?.invoke()
                     respondJson("""{"headRevisionId":"rev-$revisao"}""")
                 }
                 else -> respondJson("{}", HttpStatusCode.MethodNotAllowed)
@@ -960,6 +1009,358 @@ class CoordenadorDeSyncTest {
         assertEquals(SyncState.Desvinculado, coord.syncState.value)
         assertEquals(null, token.atual())
     }
+
+    // --- A-1: delta que chega no meio do ciclo NÃO é removido pelo lote do ciclo; fica pendente ---
+
+    @Test
+    fun `delta que chega no meio do ciclo nao e removido pelo lote do ciclo e e redrenado`() = runTest {
+        val drive = DriveSimulado(initial = SchemaBoxpace.codificar(BoxpaceArquivo()))
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = PrefsFake(),
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+        assertTrue(coord.vincular())
+
+        // a mutação "chega" no instante em que o ciclo confirma e limpa (lote vazio no 1º ciclo)
+        repo.reinjetarDelta = {
+            DeltaPendente.Salvar(
+                encomenda = encomenda(
+                    id = "correios:BB000000000BR",
+                    codigo = "BB000000000BR",
+                    etiqueta = "Caixa",
+                    atualizadaEm = "2026-09-01T13:00:00Z",
+                ),
+                alvoId = "correios:BB000000000BR",
+                criadoEm = "2026-09-01T13:00:00Z",
+            )
+        }
+
+        coord.dispararSync()
+        // precisa de 2 escritas: o lote do 1º ciclo não inclui o delta mid-cycle (A-1)
+        aguardarDreno { repo.deltas.isEmpty() && drive.revisao >= 2 }
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertEquals(listOf("BB000000000BR"), arquivo.encomendas.map { it.codigo })
+        assertTrue(repo.deltas.isEmpty(), "delta mid-cycle é re-drenado na rodada seguinte — jamais descartado")
+        assertEquals(SyncState.Vinculado, coord.syncState.value)
+    }
+
+    // --- A-2: exclusão mid-cycle não é ressuscitada pelo espelho do canônico ---
+
+    @Test
+    fun `exclusao no meio do ciclo nao ressuscita a encomenda pelo espelho`() = runTest {
+        val canonicoComVivo = SchemaBoxpace.codificar(
+            BoxpaceArquivo(encomendas = listOf(SchemaBoxpace.encomendaParaRegistro(encomenda()))),
+        )
+        val drive = DriveSimulado(initial = canonicoComVivo)
+        val repo = RepositorioFake().apply { room.value = listOf(encomenda()) }
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = PrefsFake(),
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        // o usuário exclui a encomenda no instante em que o ciclo grava no Drive
+        drive.aposGravacao = {
+            repo.deltas += DeltaPendente.Excluir(
+                alvoId = "correios:AA123456789BR",
+                criadoEm = "2026-09-01T13:00:00Z",
+            )
+            repo.room.value = repo.room.value.filterNot { it.id == "correios:AA123456789BR" }
+            drive.aposGravacao = null // exclusão é evento único do usuário
+        }
+
+        coord.dispararSync()
+        aguardarDreno { repo.deltas.isEmpty() && drive.revisao >= 2 }
+
+        // o tombstone em voo (Excluir pendente) protege o alvo: o espelho NÃO salva o vivo
+        assertTrue(repo.salvos.none { it.id == "correios:AA123456789BR" }, "espelho não pode ressuscitar excluído mid-cycle")
+        assertTrue(repo.room.value.none { it.id == "correios:AA123456789BR" })
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertTrue(arquivo.encomendas.single().tombstone, "o ciclo seguinte materializa o tombstone")
+        assertEquals(SyncState.Vinculado, coord.syncState.value)
+    }
+
+    // --- A-3: tombstone restaurado varre o fantasma via removerEspelho (sem Excluir, sem escrita) ---
+
+    @Test
+    fun `restore de tombstone remove fantasma sem registrar Excluir nem gravar no Drive`() = runTest {
+        val canonicoComTombstone = SchemaBoxpace.codificar(
+            BoxpaceArquivo(
+                encomendas = listOf(
+                    SchemaBoxpace.tombstoneParaRegistro(
+                        codigo = "AA123456789BR",
+                        transportadora = Transportadora.CORREIOS,
+                        updatedAt = "2026-09-01T12:00:00Z",
+                    ),
+                ),
+            ),
+        )
+        val drive = DriveSimulado(initial = canonicoComTombstone)
+        val repo = RepositorioFake().apply { room.value = listOf(encomenda()) }
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+
+        assertTrue(coord.vincular())
+
+        // reconciliação de espelho: some do Room SEM virar tombstone novo nem escrita
+        assertTrue(repo.room.value.isEmpty())
+        assertEquals(listOf("correios:AA123456789BR"), repo.espelhosRemovidos)
+        assertTrue(repo.deltas.none { it is DeltaPendente.Excluir }, "varredura de espelho não é exclusão do usuário")
+        assertEquals(0, drive.revisao)
+        assertEquals(canonicoComTombstone, drive.conteudo)
+    }
+
+    // --- A-4: tombstone de alvoId sem transportadora indexada cai para CORREIOS ---
+
+    @Test
+    fun `excluir sem transportadora no alvoId cai para tombstone CORREIOS`() = runTest {
+        val canonicoComVivo = SchemaBoxpace.codificar(
+            BoxpaceArquivo(encomendas = listOf(SchemaBoxpace.encomendaParaRegistro(encomenda()))),
+        )
+        val drive = DriveSimulado(initial = canonicoComVivo)
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = PrefsFake(),
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        assertTrue(coord.vincular())
+
+        // alvoId legado sem `:`: scrapingId não indexado → nunca descarta o tombstone; cai p/ CORREIOS
+        repo.deltas += DeltaPendente.Excluir(alvoId = "AA123456789BR", criadoEm = "2026-09-01T13:00:00Z")
+        coord.dispararSync()
+        aguardarDreno { repo.deltas.isEmpty() }
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        val tombstone = arquivo.encomendas.single()
+        assertTrue(tombstone.tombstone)
+        assertEquals("CORREIOS", tombstone.transportadora)
+    }
+
+    // --- B-1: promoção do 1º vínculo inclui a preferência local no canônico ---
+
+    @Test
+    fun `promocao do primeiro vinculo inclui a preferencia local no canonico`() = runTest {
+        val drive = DriveSimulado(initial = null)
+        val repo = RepositorioFake()
+        val prefs = PrefsFake(
+            preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:00:00Z"),
+        )
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = prefs,
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        assertTrue(coord.vincular())
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        val pref = arquivo.preferencias.single()
+        assertEquals("preferencias:tema", pref.chave)
+        assertEquals("escuro", pref.valor)
+    }
+
+    // --- B-2: preferência do canônico é espelhada para a preferência local quando mais nova ---
+
+    @Test
+    fun `preferencia do canonico e espelhada para a preferencia local quando e mais nova`() = runTest {
+        val canonico = SchemaBoxpace.codificar(
+            BoxpaceArquivo(
+                preferencias = listOf(RegistroPreferencia("preferencias:tema", "claro", "2026-09-01T12:00:00Z")),
+            ),
+        )
+        val drive = DriveSimulado(initial = canonico)
+        val repo = RepositorioFake()
+        val prefs = PrefsFake(
+            preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T09:00:00Z"),
+        )
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = prefs,
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        assertTrue(coord.vincular())
+
+        assertEquals(Tema.CLARO, prefs.preferencias.tema)
+        assertEquals("2026-09-01T12:00:00Z", prefs.preferencias.updatedAt)
+    }
+
+    // --- B-3: LWW estrito — local mais nova vence no write; local antiga não regride o canônico ---
+
+    @Test
+    fun `preferencia local mais nova vence o LWW e e gravada no canonico`() = runTest {
+        val canonico = SchemaBoxpace.codificar(
+            BoxpaceArquivo(
+                preferencias = listOf(RegistroPreferencia("preferencias:tema", "claro", "2026-09-01T10:00:00Z")),
+            ),
+        )
+        val drive = DriveSimulado(initial = canonico)
+        val repo = RepositorioFake()
+        val prefs = PrefsFake(
+            preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T12:00:00Z"),
+        )
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = prefs,
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        assertTrue(coord.vincular())
+        coord.dispararSync()
+        aguardarDreno { drive.revisao == 1 }
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertEquals("escuro", arquivo.preferencias.single().valor)
+        assertEquals("2026-09-01T12:00:00Z", arquivo.preferencias.single().updatedAt)
+        assertEquals(Tema.ESCURO, prefs.preferencias.tema, "a preferência ativa do aparelho não regride")
+    }
+
+    @Test
+    fun `preferencia local antiga nao regride o canonico e e alinhada ao mais novo`() = runTest {
+        val canonico = SchemaBoxpace.codificar(
+            BoxpaceArquivo(
+                preferencias = listOf(RegistroPreferencia("preferencias:tema", "claro", "2026-09-01T12:00:00Z")),
+            ),
+        )
+        val drive = DriveSimulado(initial = canonico)
+        val repo = RepositorioFake()
+        val prefs = PrefsFake(
+            preferencias = Preferencias(tema = Tema.ESCURO, updatedAt = "2026-09-01T09:00:00Z"),
+        )
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = CoordenadorDeSync(
+            encomendaRepository = repo,
+            preferenciasRepository = prefs,
+            drive = DriveCliente(HttpClient(drive.engine()), token),
+            tokenProvider = token,
+            scope = this,
+        )
+
+        assertTrue(coord.vincular())
+        coord.dispararSync()
+        aguardarDreno { drive.revisao == 1 }
+
+        val arquivo = SchemaBoxpace.decodificar(drive.conteudo!!)
+        assertEquals("claro", arquivo.preferencias.single().valor, "canônico mais novo nunca é regredido")
+        assertEquals(Tema.CLARO, prefs.preferencias.tema, "o espelho local se alinha ao vencedor LWW")
+    }
+
+    // --- C-1: decode quebrado com schemaVersion maior pausa (não falha); versão antiga falha discreta ---
+
+    @Test
+    fun `decode quebrado com schemaVersion maior pausa a sincronizacao sem sobrescrever`() = runTest {
+        // JSON válido mas com corpo incompatível (faltam encomendas/preferencias):
+        // o decode quebra e a probesia vê schemaVersion 99 > 2 → pausa em vez de falha
+        val sinicial = """{"schemaVersion":99}"""
+        val drive = DriveSimulado(initial = sinicial)
+        val repo = RepositorioFake().apply {
+            deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
+        }
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+
+        assertTrue(coord.vincular())
+
+        assertTrue(coord.syncState.value is SyncState.SincronizacaoEmPausa, "espera pausa discreta")
+        assertEquals(0, drive.revisao, "nunca sobrescreve um arquivo mais novo")
+        assertEquals(1, repo.deltas.size, "deltas preservados — ciclo não consumiu")
+    }
+
+    @Test
+    fun `decode quebrado com schemaVersion generica falha discretamente sem escrever`() = runTest {
+        // schemaVersion 2 mas corpo incompatível de verdade → probe devolve 2 (não maior) → falha discreta
+        val drive = DriveSimulado(initial = """{"schemaVersion":2,"encomendas":{{broken}""")
+        val repo = RepositorioFake().apply {
+            deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
+        }
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+
+        assertFalse(coord.vincular())
+
+        assertEquals(SyncState.Desvinculado, coord.syncState.value)
+        assertEquals(0, drive.revisao)
+        assertEquals(1, repo.deltas.size)
+    }
+
+    // --- E-1: desvincular com flush falho — NaoAutorizado desvincula; Falha aborta ---
+
+    @Test
+    fun `desvincular com flush 401 desvincula e preserva os deltas`() = runTest {
+        val drive = DriveSimulado(initial = SchemaBoxpace.codificar(BoxpaceArquivo()))
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+        assertTrue(coord.vincular())
+        repo.deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
+
+        drive.falhaStatus = HttpStatusCode.Unauthorized
+        assertTrue(coord.desvincular())
+
+        assertEquals(SyncState.Desvinculado, coord.syncState.value)
+        assertEquals(null, token.atual())
+        assertTrue(repo.deltas.isNotEmpty(), "401 no flush não perde deltas (ficam seguros localmente)")
+    }
+
+    @Test
+    fun `desvincular com falha de rede no flush aborta e preserva o vinculo`() = runTest {
+        val drive = DriveSimulado(initial = SchemaBoxpace.codificar(BoxpaceArquivo()))
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+        assertTrue(coord.vincular())
+        repo.deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
+
+        drive.falhaStatus = HttpStatusCode.InternalServerError
+        assertFalse(coord.desvincular())
+
+        assertEquals(SyncState.Vinculado, coord.syncState.value, "falha no flush aborta o desvínculo")
+        assertTrue(token.atual() != null)
+        assertTrue(repo.deltas.isNotEmpty())
+    }
+
+    // --- E-2: deltas são descarregados no Drive ANTES do desvínculo ---
+
+    @Test
+    fun `desvincular descarrega os deltas pendentes antes do desvinculo`() = runTest {
+        val drive = DriveSimulado(initial = SchemaBoxpace.codificar(BoxpaceArquivo()))
+        val repo = RepositorioFake()
+        val token = TokenOAuthProvider().apply { fornecer("token") }
+        val coord = coordenador(drive, repo, token)
+        assertTrue(coord.vincular())
+        repo.deltas += DeltaPendente.Salvar(encomenda(), "correios:AA123456789BR", "2026-09-01T12:00:00Z")
+
+        assertTrue(coord.desvincular())
+
+        assertTrue(repo.deltas.isEmpty(), "flush antes do desvínculo drena a fila")
+        assertEquals(1, drive.revisao)
+        assertTrue(SchemaBoxpace.decodificar(drive.conteudo!!).encomendas.any { it.codigo == "AA123456789BR" })
+        assertEquals(SyncState.Desvinculado, coord.syncState.value)
+        assertEquals(null, token.atual())
+    }
 }
 
 /** Aguarda o dreno fire-and-forget do [CoordenadorDeSync.dispararSync] terminar. */
@@ -972,6 +1373,12 @@ private suspend fun TestScope.aguardarDreno(condicao: () -> Boolean) {
         delay(1)
     }
     assertTrue(condicao(), "dreno não concluiu em tempo hábil")
+}
+
+private fun tipoDeDelta(delta: DeltaPendente): String = when (delta) {
+    is DeltaPendente.Salvar -> "salvar"
+    is DeltaPendente.Excluir -> "excluir"
+    is DeltaPendente.SalvarPreferencia -> "salvar-preferencia"
 }
 
 private suspend fun capturarCorpoMultipart(request: HttpRequestData): String? {

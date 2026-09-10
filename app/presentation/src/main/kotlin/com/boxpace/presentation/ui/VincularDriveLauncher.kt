@@ -40,7 +40,7 @@ fun rememberVincularDriveLauncher(
                 val authResult = Identity.getAuthorizationClient(context)
                     .getAuthorizationResultFromIntent(data)
                 val token = authResult.accessToken
-                if (token != null) {
+                if (!token.isNullOrBlank()) {
                     tokenOAuthProvider.fornecer(token)
                     onVinculado()
                 } else {
@@ -73,7 +73,7 @@ fun rememberVincularDriveLauncher(
                         } ?: onFalha()
                     } else {
                         val token = r.accessToken
-                        if (token != null) {
+                        if (!token.isNullOrBlank()) {
                             tokenOAuthProvider.fornecer(token)
                             onVinculado()
                         } else {

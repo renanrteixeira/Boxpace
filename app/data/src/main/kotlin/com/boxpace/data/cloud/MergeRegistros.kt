@@ -1,7 +1,9 @@
 package com.boxpace.data.cloud
 
 import com.boxpace.domain.DeltaPendente
+import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Preferencias
+import com.boxpace.domain.Transportadora
 import java.time.Instant
 
 /**
@@ -44,19 +46,16 @@ object MergeRegistros {
 
                 is DeltaPendente.Excluir -> {
                     val (scraperId, codigo) = alvoIdPara(delta.alvoId)
-                    val sm = com.boxpace.domain.Transportadora.fromScraperId(scraperId)
-                    sm?.let {
-                        val tombstone = SchemaBoxpace.tombstoneParaRegistro(codigo, it, delta.criadoEm)
-                        upsertEncomenda(encomendas, identidadeDe(tombstone), tombstone)
-                    }
+                    // transportadora desconhecida/ausente nunca descarta o tombstone:
+                    // cai para CORREIOS (mesmo fallback do repo) — A-4.
+                    val sm = Transportadora.fromScraperId(scraperId) ?: Transportadora.CORREIOS
+                    val tombstone = SchemaBoxpace.tombstoneParaRegistro(codigo, sm, delta.criadoEm)
+                    upsertEncomenda(encomendas, identidadeDe(tombstone), tombstone)
                 }
 
                 is DeltaPendente.SalvarPreferencia -> {
-                    val novo = RegistroPreferencia(
-                        chave = delta.alvoId,
-                        valor = delta.preferencias.tema.id,
-                        updatedAt = delta.criadoEm,
-                    )
+                    // reuso do mapper (nota: `updatedAt == criadoEm` na injeção) — F-3
+                    val novo = preferenciaParaRegistro(delta.alvoId, delta.preferencias)
                     upsertPreferencia(preferencias, novo)
                 }
             }
@@ -86,16 +85,34 @@ object MergeRegistros {
         )
     }
 
-    /** Promoção: importa os registros locais (atual do Room). Canônico tratado como ∅. */
-    fun promover(encomendas: List<com.boxpace.domain.Encomenda>): BoxpaceArquivo {
+    /** Promoção: importa os registros locais (atual do Room) + preferências locais. Canônico tratado como ∅. */
+    fun promover(
+        encomendas: List<Encomenda>,
+        preferencias: List<RegistroPreferencia> = emptyList(),
+    ): BoxpaceArquivo {
         val mapa = LinkedHashMap<String, RegistroEncomenda>()
         encomendas.map { SchemaBoxpace.encomendaParaRegistro(it) }
             .forEach { upsertEncomenda(mapa, identidadeDe(it), it) }
         return BoxpaceArquivo(
             schemaVersion = SchemaBoxpace.SCHEMA_VERSION,
             encomendas = mapa.values.toList(),
-            preferencias = emptyList(),
+            preferencias = preferencias,
         )
+    }
+
+    /**
+     * Combina as preferências locais vivas sobre [canonico] com LWW **estrito**
+     * (B-3): cada registro local só substitui o atual se for estritamente mais
+     * recente — a preferência ativa do aparelho nunca regride.
+     */
+    fun combinarPreferenciasVivas(
+        canonico: BoxpaceArquivo,
+        locais: List<RegistroPreferencia>,
+    ): BoxpaceArquivo {
+        val preferencias = LinkedHashMap<String, RegistroPreferencia>()
+        canonico.preferencias.forEach { preferencias[it.chave] = it }
+        locais.forEach { upsertPreferencia(preferencias, it) }
+        return canonico.copy(preferencias = preferencias.values.toList())
     }
 
     /** Preferência (repositório de preferências) → registro canônico, LWW por [Preferencias.updatedAt]. */

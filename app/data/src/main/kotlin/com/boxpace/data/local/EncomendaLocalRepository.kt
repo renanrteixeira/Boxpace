@@ -165,6 +165,40 @@ class EncomendaLocalRepository(
 
     override suspend fun limparDeltasPendentes() = deltaDao.limpar()
 
+    /**
+     * Limpeza do lote do ciclo (AD-SYNC-9): em transação, remove apenas os
+     * deltas cujo marcador (`alvoId`+`tipo`+`criadoEm`) está no lote informado.
+     * Deltas que chegarem durante o ciclo permanecem pendentes para a próxima rodada.
+     */
+    override suspend fun limparDeltasPendentes(deltas: List<DeltaPendente>): Int =
+        database.withTransaction {
+            deltas.sumOf { delta ->
+                deltaDao.excluirPorMarcador(
+                    alvoId = delta.alvoId,
+                    tipo = when (delta) {
+                        is DeltaPendente.Salvar -> TIPO_SALVAR
+                        is DeltaPendente.Excluir -> TIPO_EXCLUIR
+                        is DeltaPendente.SalvarPreferencia -> TIPO_SALVAR_PREFERENCIA
+                    },
+                    criadoEm = delta.criadoEm,
+                )
+            }
+        }
+
+    /**
+     * Remove do Room o espelho de [id] (fantasma frente ao canônico) em
+     * transação, **sem** registrar `DeltaPendente.Excluir` nem disparar sync:
+     * aqui é reconciliação de espelho (AD-SYNC-9), não exclusão do usuário —
+     * nenhum tombstone deve nascer disso.
+     */
+    override suspend fun removerEspelho(id: String) {
+        database.withTransaction {
+            dao.excluirEventos(id)
+            dao.excluir(id)
+            deltaDao.excluirPorAlvoId(id)
+        }
+    }
+
     override suspend fun purgarFechadasAntigas(dias: Int) {
         require(dias > 0) { "dias deve ser maior que zero" }
         val limiteIso = Instant.now().minus(Duration.ofDays(dias.toLong())).toString()
