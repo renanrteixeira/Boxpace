@@ -179,11 +179,56 @@ def _nome_da_unidade(item: dict) -> str | None:
     return None
 
 
+def _local_unidade(unidade) -> str | None:
+    """`"Unidade de Distribuição, Feira de Santana - BA"` (origem/destino do site).
+
+    No shape real, `nome` fica vazio e `tipo` + `endereco.cidade/uf` carregam o
+    texto; em unidades como CHINA, `nome` é a informação útil.
+    """
+    if not isinstance(unidade, dict):
+        return None
+    tipo = str(unidade.get("tipo") or "").strip()
+    nome = str(unidade.get("nome") or "").strip()
+    endereco = unidade.get("endereco")
+    cidade = (endereco or {}).get("cidade") if isinstance(endereco, dict) else None
+    uf = (endereco or {}).get("uf") if isinstance(endereco, dict) else None
+    base = nome or tipo or ""
+    if cidade and uf:
+        local = f"{cidade} - {uf}"
+        if base:
+            return f"{base}, {local}" if local not in base else base
+        return local
+    return base or None
+
+
 def _mapear_evento(item: dict) -> EventoDTO:
+    # A ordem importa: no shape real `descricaoWeb` é só o código curto
+    # ("ENTREGUE", "TRANSITO", "PAR07") — o texto humano vive em `descricao`
+    # (+ `descricaoFrontEnd`). `descricaoWeb` fica como último fallback para as
+    # variantes da API que já o devolvem como texto.
+    main = str(item.get("descricao") or item.get("descricaoFrontEnd") or item.get("descricaoWeb") or "").strip()
+    linhas = [main] if main else []
+
+    # Transferências: "de X para Y" como no site (unidadeDestino só vem preenchido
+    # nesses eventos). Detalhe/observações incrementam o resto.
+    origem = _local_unidade(item.get("unidade"))
+    destino = _local_unidade(item.get("unidadeDestino"))
+    if destino and origem:
+        linhas.append(f"de {origem}")
+        linhas.append(f"para {destino}")
+    elif destino:
+        linhas.append(f"para {destino}")
+    atual = "\n".join(linhas)
+    for extra in (item.get("detalhe"), item.get("comentario")):
+        texto = str(extra or "").strip()
+        if texto and texto not in atual:
+            linhas.append(texto)
+            atual = "\n".join(linhas)
+
     cidade, uf = _cidade_uf_da_unidade(item)
     return EventoDTO(
         data=_normalizar_data(item),
-        descricao=str(item.get("descricaoWeb") or item.get("descricao") or ""),
+        descricao=atual,
         cidade=cidade,
         uf=uf,
         unidade=_nome_da_unidade(item),

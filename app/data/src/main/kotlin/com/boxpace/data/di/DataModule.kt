@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.boxpace.data.BuildConfig
 import com.boxpace.data.cloud.CoordenadorDeSync
 import com.boxpace.data.cloud.DriveCliente
 import com.boxpace.data.cloud.TokenOAuthProvider
@@ -31,13 +32,14 @@ import kotlinx.serialization.json.Json
  * base URL do scraper, banco Room + repositório local) para o `presentation`
  * consumir.
  *
- * Fonte canônica do contrato do scraper: a base URL aponta para o backend local
- * de scraping (via `10.0.2.2` no emulador Android); quando o scraper for
- * hospedado, basta trocar [BASE_URL].
+ * Fonte canônica do contrato do scraper: a base URL vem do [BuildConfig] —
+ * debug aponta para o backend local (`10.0.2.2`, emulador → host); para um
+ * backend hospedado, passe `-Pscraper.baseUrl=https://...` na build (mesmo
+ * valor vale para release, que deve usar HTTPS).
  */
 object DataModule {
 
-    private const val BASE_URL = "http://10.0.2.2:8000"
+    private val BASE_URL: String = BuildConfig.SCRAPER_BASE_URL
     private const val TIMEOUT_MS = 10_000L
 
     /** `Json` do contrato HTTP — compartilhado pelo client e pelos testes. */

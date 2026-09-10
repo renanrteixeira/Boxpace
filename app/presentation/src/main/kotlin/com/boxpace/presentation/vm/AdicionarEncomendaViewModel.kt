@@ -179,17 +179,20 @@ class AdicionarEncomendaViewModel(
         eventos: List<Evento>,
     ): Encomenda {
         val agoraIso = agora()
+        // Mesma heurística do domínio (AD-6): encomenda já entregue na adição
+        // cai direto em Fechados, sem esperar a revalidação de 30 min.
+        val entregue = Encomenda.eventosIndicamEntrega(eventos)
         return Encomenda(
             id = "${transportadora.scraperId}:${codigo}",
             codigo = codigo,
             transportadora = transportadora,
             etiqueta = sanitizarEtiqueta(etiqueta),
             ultimoStatus = eventos.lastOrNull()?.descricao,
-            statusEntregue = eventos.any { it.descricao.contains("entregue", ignoreCase = true) },
+            statusEntregue = entregue,
             eventos = eventos,
             criadaEm = agoraIso,
             atualizadaEm = agoraIso,
-            fechadaEm = null,
+            fechadaEm = if (entregue) agoraIso else null,
             cpfDestinatario = cpf,
             // A primeira busca conta como 1: se não houver eventos, já inicia o
             // caminho pro badge "Sem dados"; se houver, zera.

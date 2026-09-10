@@ -39,6 +39,21 @@ data class Encomenda(
      * (heurística centralizada no domínio — uma única fonte, AD-6).
      * Não depende de [estaFechada] nem de [statusEntregue].
      */
-    fun estaEntregue(): Boolean =
-        eventos.any { it.descricao.contains("entregue", ignoreCase = true) }
+    fun estaEntregue(): Boolean = eventosIndicamEntrega(eventos)
+
+    companion object {
+        /**
+         * Heurística de "entregue" centralizada (AD-6) — única fonte de decisão
+         * para os textos "entregue"/"assinado" (J&T assina antes da entrega útil).
+         * Usada por [estaEntregue] e pelo fluxo de adição da [AdicionarEncomenda].
+         */
+        fun eventosIndicamEntrega(eventos: List<Evento>): Boolean =
+            eventos.any { evento ->
+                val descricao = evento.descricao
+                descricao.contains("entregue", ignoreCase = true) ||
+                    descricao.contains("assinad", ignoreCase = true) ||
+                    descricao.contains("assinatur", ignoreCase = true) ||
+                    descricao.contains("assinar", ignoreCase = true)
+            }
+    }
 }

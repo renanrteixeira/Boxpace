@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import com.boxpace.domain.Tema
 
 private val BoxpaceLightColorScheme = lightColorScheme(
@@ -49,10 +50,14 @@ private val BoxpaceDarkColorScheme = darkColorScheme(
  * Boxpace theme wrapper. When [tema] is [Tema.SISTEMA], follows the device
  * setting via [isSystemInDarkTheme]. [Tema.CLARO] forces light; [Tema.ESCURO]
  * forces dark. Theme switches are immediate (no activity restart).
+ *
+ * [onDarkThemeChanged] notifica o tema efetivo (após resolver SISTEMA) a cada
+ * mudança — usado pelo host para alinhar a aparência dos ícones da status bar.
  */
 @Composable
 fun BoxpaceTheme(
     tema: Tema,
+    onDarkThemeChanged: ((Boolean) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (tema) {
@@ -60,6 +65,7 @@ fun BoxpaceTheme(
         Tema.CLARO -> false
         Tema.ESCURO -> true
     }
+    SideEffect { onDarkThemeChanged?.invoke(darkTheme) }
     val colorScheme = if (darkTheme) BoxpaceDarkColorScheme else BoxpaceLightColorScheme
 
     MaterialTheme(

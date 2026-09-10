@@ -41,6 +41,19 @@ class EncomendaTest {
     }
 
     @Test
+    fun `estaEntregue quando evento de assinatura indica entrega (J&T)`() {
+        val assinatura = encomenda(
+            eventos = listOf(Evento("2026-09-09T17:34:56", "Assinar pelo próprio")),
+        )
+        assertTrue(assinatura.estaEntregue())
+
+        val assinado = encomenda(
+            eventos = listOf(Evento("2026-09-09T17:34:56", "O pacote foi assinado! O signatário é [porteiro].")),
+        )
+        assertTrue(assinado.estaEntregue())
+    }
+
+    @Test
     fun `estaEntregue falso sem evento de entrega`() {
         val semEntrega = encomenda(
             eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto postado")),

@@ -5,16 +5,23 @@ import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boxpace.data.cloud.ConnectivityObserver
 import com.boxpace.data.di.DataModule
@@ -37,6 +44,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge (targetSdk 37 força em API 35+): barras transparentes e
+        // conteúdo estendido; os insets ficam com o app, não com o sistema.
+        enableEdgeToEdge()
         comandoAbrir.value = comandoDe(intent)
         setContent {
             val configuracoesVm: ConfiguracoesViewModel = viewModel {
@@ -47,12 +57,23 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val tema by configuracoesVm.tema.collectAsState()
-            BoxpaceTheme(tema = tema) {
-                Surface {
-                    BoxpaceApp(
-                        comandoAbrir = comandoAbrir.value,
-                        configuracoesVm = configuracoesVm,
-                    )
+            BoxpaceTheme(
+                tema = tema,
+                onDarkThemeChanged = { dark ->
+                    // ícones das system bars: escuros no tema claro, claros no escuro
+                    val controller = WindowCompat.getInsetsController(window, window.decorView)
+                    controller.isAppearanceLightStatusBars = !dark
+                    controller.isAppearanceLightNavigationBars = !dark
+                },
+            ) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    // conteúdo nunca fica sob a status/nav bar (edge-to-edge)
+                    Box(modifier = Modifier.safeDrawingPadding().fillMaxSize()) {
+                        BoxpaceApp(
+                            comandoAbrir = comandoAbrir.value,
+                            configuracoesVm = configuracoesVm,
+                        )
+                    }
                 }
             }
         }

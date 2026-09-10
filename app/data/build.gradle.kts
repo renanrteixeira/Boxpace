@@ -4,12 +4,24 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Base URL do scraper por build. Debug aponta para o backend local (emulador →
+// host via 10.0.2.2); release usa https do backend hospedado. Para acessar de
+// um device físico com o backend na sua máquina: `-Pscraper.baseUrl=http://IP-DA-MAQUINA:8000`
+val scraperBaseUrl: String = providers.gradleProperty("scraper.baseUrl")
+    .orElse("http://10.0.2.2:8000")
+    .get()
+
 android {
     namespace = "com.boxpace.data"
     compileSdk = 37
 
     defaultConfig {
         minSdk = 26
+        buildConfigField("String", "SCRAPER_BASE_URL", "\"$scraperBaseUrl\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

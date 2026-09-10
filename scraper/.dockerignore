@@ -1,0 +1,7 @@
+.venv
+__pycache__/
+*.pyc
+.pytest_cache
+test_app.py
+test_correios.py
+test_jt.py

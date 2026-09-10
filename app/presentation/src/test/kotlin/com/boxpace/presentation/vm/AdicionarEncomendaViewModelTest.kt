@@ -340,6 +340,50 @@ class AdicionarEncomendaViewModelTest {
     }
 
     @Test
+    fun `adicionar encomenda ja entregue cai direto em fechadas`() = runTest {
+        remote.resultado = { _, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = "AA123456789BR",
+                eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário")),
+            )
+        }
+        val vm = criarVm()
+        preencherCorreios(vm)
+
+        vm.adicionar()
+
+        val salva = vm.encomendas.value.single()
+        assertTrue(salva.statusEntregue)
+        assertNotNull(salva.fechadaEm)
+        assertTrue(vm.encomendasFechadas.value.any { it.id == salva.id })
+        assertTrue(vm.encomendasAtivas.value.isEmpty())
+    }
+
+    @Test
+    fun `adicionar jt assinado reconhece entrega pela heuristica central`() = runTest {
+        remote.resultado = { _, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = "888002520892021",
+                eventos = listOf(
+                    Evento(data = "2026-09-01T11:00:00", descricao = "[Feira de Santana] O pacote foi assinado! O signatário é [Assinar pelo próprio]"),
+                ),
+            )
+        }
+        val vm = criarVm()
+        vm.transportadoraMudou(Transportadora.JT)
+        vm.codigoMudou("888002520892021")
+        vm.etiquetaMudou("Fone de ouvido")
+        vm.cpfMudou("039.575.015-63")
+
+        vm.adicionar()
+
+        val salva = vm.encomendas.value.single()
+        assertTrue(salva.statusEntregue)
+        assertNotNull(salva.fechadaEm)
+        assertTrue(vm.encomendasFechadas.value.any { it.id == salva.id })
+    }
+
+    @Test
     fun `descartar limpa o formulario sem tocar a lista`() = runTest {
         val vm = criarVm()
         preencherCorreios(vm)

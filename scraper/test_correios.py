@@ -131,6 +131,52 @@ def test_mapeia_unidade_pelo_nome_quando_presente(monkeypatch) -> None:
     assert resp.eventos[0].unidade == "CDD PINHEIROS"
 
 
+def test_mapeia_transferencia_com_de_para_e_detalhe(monkeypatch) -> None:
+    dados = {
+        "eventos": [
+            {
+                "descricao": "Objeto em transferência - por favor aguarde",
+                "descricaoWeb": "TRANSITO",  # shape real: código curto no web
+                "descricaoFrontEnd": "Objeto expedido",
+                "detalhe": "Acompanhe pelo Minhas Importações",
+                "comentario": "",
+                "dtHrCriado": "2026-09-01 08:00:00.000000",
+                "unidade": {"tipo": "Unidade de Distribuição", "endereco": {"cidade": "Feira de Santana", "uf": "BA"}},
+                "unidadeDestino": {"tipo": "Unidade de Distribuição", "endereco": {"cidade": "Feira de Santana", "uf": "BA"}},
+            }
+        ]
+    }
+    monkeypatch.setattr(correios, "_rastrear_sync", lambda codigo: dados)
+
+    resp = correios.rastrear(_request())
+
+    assert resp.eventos[0].descricao == (
+        "Objeto em transferência - por favor aguarde\n"
+        "de Unidade de Distribuição, Feira de Santana - BA\n"
+        "para Unidade de Distribuição, Feira de Santana - BA\n"
+        "Acompanhe pelo Minhas Importações"
+    )
+    assert resp.eventos[0].cidade == "Feira de Santana"
+    assert resp.eventos[0].uf == "BA"
+
+
+def test_prefere_descricao_humana_ao_descricao_web_codigo(monkeypatch) -> None:
+    dados = {
+        "eventos": [
+            {
+                "descricao": "Objeto entregue ao destinatário",
+                "descricaoWeb": "ENTREGUE",
+                "dtHrCriado": "2026-09-01 08:00:00.000000",
+            }
+        ]
+    }
+    monkeypatch.setattr(correios, "_rastrear_sync", lambda codigo: dados)
+
+    resp = correios.rastrear(_request())
+
+    assert resp.eventos[0].descricao == "Objeto entregue ao destinatário"
+
+
 def test_objeto_nao_encontrado_404(monkeypatch) -> None:
     def rais(*_a, **_kw):
         raise correios.ObjetoNaoEncontradoError()
