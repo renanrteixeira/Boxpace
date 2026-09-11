@@ -21,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
 import com.boxpace.presentation.ui.theme.coresBadgeSucesso
+import androidx.activity.compose.BackHandler
 import java.time.format.DateTimeFormatter
 
 private val TipoDataHora: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM HH:mm")
@@ -52,6 +54,8 @@ fun DetalhesScreen(
     modifier: Modifier = Modifier,
 ) {
     var confirmandoExclusao by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler { onVoltar() }
 
     Column(
         Modifier
@@ -127,15 +131,28 @@ private fun Timeline(
     eventos: List<Evento>,
     modifier: Modifier = Modifier,
 ) {
+    val ordenados = remember(eventos) { ordenarEventos(eventos) }
     LazyColumn(modifier = modifier.fillMaxWidth()) {
-        itemsIndexed(eventos) { index, evento ->
+        itemsIndexed(ordenados) { index, evento ->
             TimelineItem(
                 evento = evento,
-                ultimo = index == eventos.lastIndex,
+                ultimo = index == 0,
             )
         }
     }
 }
+
+/**
+ * Ordena a timeline somente para exibição: mais recente → mais antigo, com
+ * datas não-parseáveis caindo no fim (ordem depois dos parseáveis). O sort é
+ * estável (`sortedWith` → TimSort), então empates de data preservam a sequência
+ * de origem.
+ *
+ * Persistência/domínio continuam em ordem cronológica ascendente (contrato do
+ * scraper) — esta ordenação nunca alimenta dedup/round-trip/`ultimoStatus`.
+ */
+internal fun ordenarEventos(eventos: List<Evento>): List<Evento> =
+    eventos.sortedWith(compareByDescending { parseZonedDateTime(it.data) })
 
 @Composable
 private fun TimelineItem(

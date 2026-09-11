@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,10 +33,12 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,11 +55,13 @@ import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.presentation.ui.theme.coresBadgeSucesso
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
+import kotlinx.coroutines.launch
 
 /**
  * Aba **Ativos** (Story 1.4): lista em memória agregada pelo ViewModel, search
  * bar que filtra em tempo real por etiqueta OU código, rows em 2 níveis e FAB `+`.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtivosScreen(
     encomendas: List<Encomenda>,
@@ -64,6 +71,8 @@ fun AtivosScreen(
     onReabrir: (Encomenda) -> Unit = {},
     onRepetir: (Encomenda) -> Unit = {},
     onExcluir: (Encomenda) -> Unit = {},
+    refrescando: Boolean = false,
+    aoAtualizar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var termo by rememberSaveable { mutableStateOf("") }
@@ -101,24 +110,33 @@ fun AtivosScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            when {
-                encomendas.isEmpty() -> {
-                    EmptyState("Nenhuma encomenda ativa — toque em + para começar.")
-                }
-                filtradas.isEmpty() -> {
-                    EmptyState("Nenhuma encomenda com esse nome ou código.")
-                }
-                else -> {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(filtradas, key = { it.id }) { encomenda ->
-                            EncomendaRow(
-                                encomenda = encomenda,
-                                onClick = { onAbrirDetalhes(encomenda) },
-                                onArquivar = { onArquivar(encomenda) },
-                                onReabrir = { onReabrir(encomenda) },
-                                onRepetir = { onRepetir(encomenda) },
-                                onExcluir = { onExcluir(encomenda) },
-                            )
+            PullToRefreshBox(
+                isRefreshing = refrescando,
+                onRefresh = aoAtualizar,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
+                    encomendas.isEmpty() -> {
+                        EmptyStateRolavel("Nenhuma encomenda ativa — toque em + para começar.")
+                    }
+                    filtradas.isEmpty() -> {
+                        EmptyStateRolavel("Nenhuma encomenda com esse nome ou código.")
+                    }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(filtradas, key = { it.id }) { encomenda ->
+                                EncomendaRow(
+                                    encomenda = encomenda,
+                                    onClick = { onAbrirDetalhes(encomenda) },
+                                    onArquivar = { onArquivar(encomenda) },
+                                    onReabrir = { onReabrir(encomenda) },
+                                    onRepetir = { onRepetir(encomenda) },
+                                    onExcluir = { onExcluir(encomenda) },
+                                )
+                            }
                         }
                     }
                 }
@@ -134,6 +152,21 @@ private fun EmptyState(texto: String) {
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * Empty state rolável: conteúdo não-rolável dentro de [PullToRefreshBox] precisa
+ * ser rolável para o gesto de pull-to-refresh ser reconhecido.
+ */
+@Composable
+private fun EmptyStateRolavel(texto: String) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        EmptyState(texto)
+    }
 }
 
 @Composable
@@ -182,13 +215,17 @@ internal fun EncomendaRow(
     // Swipe é atalho redundante (UX-DR7): dispara a mesma ação do menu ⋮.
     // Arquiva quando ativa, reabre quando fechada. `onDismiss` dispara a ação
     // após o gesto; a row sai da aba atual de forma reativa (o `onArquivar`/
-    // `onReabrir` move a encomenda para a outra aba).
+    // `onReabrir` move a encomenda para a outra aba). O `reset()` em seguida
+    // devolve a row à posição encaixada caso a escrita atrase/falhe e ela
+    // permaneça na composição — sem ficar presa deslizada.
+    val coroutineScope = rememberCoroutineScope()
     val dismissState = rememberSwipeToDismissBoxState()
 
     SwipeToDismissBox(
         state = dismissState,
         onDismiss = {
             if (encomenda.fechadaEm == null) onArquivar(encomenda) else onReabrir(encomenda)
+            coroutineScope.launch { dismissState.reset() }
         },
         backgroundContent = {
             Surface(

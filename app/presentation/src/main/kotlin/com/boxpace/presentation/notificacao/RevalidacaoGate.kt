@@ -8,16 +8,19 @@ import kotlinx.coroutines.sync.withLock
  * **Mutex por `codigo`** compartilhado entre o foreground (`revalidar` do
  * ViewModel) e o worker de background (`RevalidarWorker`) — AD-NOTIFY-REFRESH.
  *
- * Garante que, no mesmo `codigo`, o segundo atualizador **pula** enquanto já há
- * um fetch em voo: nenhum fetch/notificação duplicado por concorrência
- * (CONCORRENCIA no I/O & Edge-Case Matrix).
+ * Garante que, no mesmo `codigo`, nunca há dois fetches **em paralelo**: chamadas
+ * concorrentes são **serializadas** (a segunda espera a primeira terminar). Isso
+ * evita duplicar fetch/notificação por concorrência simultânea (CONCORRENCIA no
+ * I/O & Edge-Case Matrix); a deduplicação de *conteúdo* (status já visto) é do
+ * domínio ([`RevalidarEncomendaUseCase`]).
  *
  * O mesmo gate (instância compartilhada em [Gates]) é consumido pelo ViewModel e
  * pelo worker — é isso que torna o mutex efetivamente comum às duas fontes.
  *
- * Um `Mutex` é criado sob demanda por chave; `NoFurthers`/`withLock` enfileira a
- * coroutine concorrente até a primeira terminar. O bloqueio é por encomenda e
- * durável apenas enquanto durar a revalidação (não persiste entre execuções).
+ * Um `Mutex` é criado sob demanda por chave; `withLock` enfileira a coroutine
+ * concorrente até a primeira terminar (serialização, não skip). O bloqueio é por
+ * encomenda e durável apenas enquanto durar a revalidação (não persiste entre
+ * execuções).
  */
 class RevalidacaoGate {
     private val mutexes = ConcurrentHashMap<String, Mutex>()

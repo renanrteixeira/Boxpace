@@ -2,15 +2,20 @@ package com.boxpace.presentation.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +39,9 @@ fun BoxpaceTabs(
     onReabrir: (Encomenda) -> Unit = {},
     onRepetir: (Encomenda) -> Unit = {},
     onExcluir: (Encomenda) -> Unit = {},
+    refrescando: Boolean = false,
+    aoAtualizar: () -> Unit = {},
+    onAbaMudou: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var aba by rememberSaveable { mutableStateOf(0) }
@@ -44,7 +52,7 @@ fun BoxpaceTabs(
             abas.forEachIndexed { index, titulo ->
                 Tab(
                     selected = aba == index,
-                    onClick = { aba = index },
+                    onClick = { aba = index; onAbaMudou(index) },
                     text = { Text(titulo) },
                 )
             }
@@ -59,6 +67,8 @@ fun BoxpaceTabs(
                 onReabrir = onReabrir,
                 onRepetir = onRepetir,
                 onExcluir = onExcluir,
+                refrescando = refrescando,
+                aoAtualizar = aoAtualizar,
             )
             else -> FechadosScreen(
                 encomendas = encomendasFechadas,
@@ -66,6 +76,8 @@ fun BoxpaceTabs(
                 onArquivar = onArquivar,
                 onReabrir = onReabrir,
                 onExcluir = onExcluir,
+                refrescando = refrescando,
+                aoAtualizar = aoAtualizar,
             )
         }
     }
@@ -77,6 +89,7 @@ fun BoxpaceTabs(
  * oferece "Reabrir" (via menu/swipe), o callback [onArquivar] é ignorado pelas
  * linhas fechadas.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FechadosScreen(
     encomendas: List<Encomenda>,
@@ -84,6 +97,8 @@ private fun FechadosScreen(
     onArquivar: (Encomenda) -> Unit,
     onReabrir: (Encomenda) -> Unit,
     onExcluir: (Encomenda) -> Unit,
+    refrescando: Boolean = false,
+    aoAtualizar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -91,23 +106,38 @@ private fun FechadosScreen(
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        if (encomendas.isEmpty()) {
-            Text(
-                text = "Nenhuma encomenda concluída ainda. Quando uma chegar, ela aparece aqui.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(encomendas, key = { it.id }) { encomenda ->
-                    EncomendaRow(
-                        encomenda = encomenda,
-                        onClick = { onAbrirDetalhes(encomenda) },
-                        onArquivar = onArquivar,
-                        onReabrir = onReabrir,
-                        onRepetir = {},
-                        onExcluir = { onExcluir(encomenda) },
+        PullToRefreshBox(
+            isRefreshing = refrescando,
+            onRefresh = aoAtualizar,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (encomendas.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text = "Nenhuma encomenda concluída ainda. Quando uma chegar, ela aparece aqui.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(encomendas, key = { it.id }) { encomenda ->
+                        EncomendaRow(
+                            encomenda = encomenda,
+                            onClick = { onAbrirDetalhes(encomenda) },
+                            onArquivar = onArquivar,
+                            onReabrir = onReabrir,
+                            onRepetir = {},
+                            onExcluir = { onExcluir(encomenda) },
+                        )
+                    }
                 }
             }
         }

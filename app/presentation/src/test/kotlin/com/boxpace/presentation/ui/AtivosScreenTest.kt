@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
 import com.boxpace.domain.Transportadora
@@ -164,6 +166,27 @@ class AtivosScreenTest {
         composeRule.waitForIdle()
         assert(arquivada == encomenda) {
             "onArquivar deve ser invocado via menu"
+        }
+    }
+
+    // --- SWIPE_GATE: gesto de deslizar dispara a mesma ação (atalho) ---
+
+    @Test
+    fun swipe_arquivar_invoca_callback() {
+        var arquivada: Encomenda? = null
+        val encomenda = encomendaAtiva(etiqueta = "Swipe arquivar")
+        composeRule.setContent {
+            AtivosScreen(
+                encomendas = listOf(encomenda),
+                onAdicionar = {},
+                onAbrirDetalhes = {},
+                onArquivar = { arquivada = it },
+            )
+        }
+        composeRule.onNodeWithText("Swipe arquivar").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+        assert(arquivada == encomenda) {
+            "onArquivar deve ser invocado ao deslizar para o lado"
         }
     }
 

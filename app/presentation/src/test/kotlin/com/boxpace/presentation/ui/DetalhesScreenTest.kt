@@ -1,7 +1,8 @@
 package com.boxpace.presentation.ui
 
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -18,7 +19,7 @@ import org.robolectric.annotation.Config
 class DetalhesScreenTest {
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     private fun encomendaAtiva(
         etiqueta: String = "Caixa",
@@ -100,5 +101,44 @@ class DetalhesScreenTest {
         composeRule.onNodeWithText("Arquivar").performClick()
         composeRule.waitForIdle()
         assert(arquivou) { "onArquivar deve ser invocado" }
+    }
+
+    // --- BACK_HANDLER: voltar do sistema invoca onVoltar (BackHandler) ---
+
+    @Test
+    fun detalhes_voltar_botao_invoca_callback() {
+        var voltou = false
+        val encomenda = encomendaAtiva()
+        composeRule.setContent {
+            DetalhesScreen(
+                encomenda = encomenda,
+                onArquivar = {},
+                onReabrir = {},
+                onExcluir = {},
+                onVoltar = { voltou = true },
+            )
+        }
+        composeRule.onNodeWithText("← Voltar").performClick()
+        composeRule.waitForIdle()
+        assert(voltou) { "onVoltar deve ser invocado ao clicar ← Voltar" }
+    }
+
+    @Test
+    fun detalhes_voltar_sistema_invoca_callback() {
+        var voltou = false
+        val encomenda = encomendaAtiva()
+        composeRule.setContent {
+            DetalhesScreen(
+                encomenda = encomenda,
+                onArquivar = {},
+                onReabrir = {},
+                onExcluir = {},
+                onVoltar = { voltou = true },
+            )
+        }
+        composeRule.waitForIdle()
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+        assert(voltou) { "onVoltar deve ser invocado pelo voltar do sistema" }
     }
 }

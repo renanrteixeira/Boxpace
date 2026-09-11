@@ -140,6 +140,8 @@ internal fun BoxpaceApp(
     val encomendasFechadas by viewModel.encomendasFechadas.collectAsState()
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
     var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
+    var refrescando by remember { mutableStateOf(false) }
+    var abaAtiva by rememberSaveable { mutableStateOf(0) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -230,6 +232,15 @@ internal fun BoxpaceApp(
                             onReabrir = { viewModel.reabrir(it.id) },
                             onRepetir = { viewModel.repetirBusca(it.id) },
                             onExcluir = { viewModel.excluir(it.id) },
+                            refrescando = refrescando,
+                            aoAtualizar = {
+                                if (!refrescando) {
+                                    refrescando = true
+                                    val lista = if (abaAtiva == 0) encomendasAtivas else encomendasFechadas
+                                    viewModel.revalidarLote(lista) { refrescando = false }
+                                }
+                            },
+                            onAbaMudou = { abaAtiva = it },
                         )
                     }
                 }

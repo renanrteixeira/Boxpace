@@ -208,7 +208,7 @@ class AdicionarEncomendaViewModel(
     ): Encomenda {
         val agoraIso = agora()
         // Mesma heurística do domínio (AD-6): encomenda já entregue na adição
-        // cai direto em Fechados, sem esperar a revalidação de 30 min.
+        // cai direto em Fechados, sem esperar a revalidação de 15 min.
         val entregue = Encomenda.eventosIndicamEntrega(eventos)
         return Encomenda(
             id = "${transportadora.scraperId}:${codigo}",
@@ -297,22 +297,47 @@ class AdicionarEncomendaViewModel(
     fun revalidar(id: String) {
         val alvo = encomendas.value.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
-            gate.comLock(id) {
-                try {
-                    when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
-                        is RastreioResult.Sucesso -> {
-                            val atual = encomendas.value.firstOrNull { it.id == id } ?: return@comLock
-                            when (val r = revalidarUseCase.executar(atual, resultado)) {
-                                is RevalidarEncomendaUseCase.Resultado.Sucesso ->
-                                    repository.purgarFechadasAntigas(PURGA_DIAS)
-                                else -> Unit
-                            }
-                        }
-                        is RastreioResult.NaoImplementado -> Unit
-                    }
-                } catch (_: Exception) {
-                    // conservador: mantém o cache atual
+            revalidarSuspenso(alvo)
+        }
+    }
+
+    /**
+     * Revalida sequencialmente uma lista de encomendas sob o gate por código.
+     * Falha em um item não interrompe o restante. [aoConcluir] é chamado em
+     * `finally` (garante desligamento do spinner, mesmo com exceção).
+     */
+    fun revalidarLote(lista: List<Encomenda>, aoConcluir: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                for (encomenda in lista) {
+                    revalidarSuspenso(encomenda)
                 }
+            } finally {
+                aoConcluir()
+            }
+        }
+    }
+
+    /**
+     * Revalida uma única encomenda de forma suspensa, com lock por código.
+     * Usada tanto pelo [revalidar] (fire-and-forget) quanto pelo [revalidarLote].
+     */
+    private suspend fun revalidarSuspenso(alvo: Encomenda) {
+        gate.comLock(alvo.id) {
+            try {
+                when (val resultado = rastrear.executar(alvo.codigo, alvo.transportadora, alvo.cpfDestinatario)) {
+                    is RastreioResult.Sucesso -> {
+                        val atual = encomendas.value.firstOrNull { it.id == alvo.id } ?: return@comLock
+                        when (val r = revalidarUseCase.executar(atual, resultado)) {
+                            is RevalidarEncomendaUseCase.Resultado.Sucesso ->
+                                repository.purgarFechadasAntigas(PURGA_DIAS)
+                            else -> Unit
+                        }
+                    }
+                    is RastreioResult.NaoImplementado -> Unit
+                }
+            } catch (_: Exception) {
+                // conservador: mantém o cache atual
             }
         }
     }

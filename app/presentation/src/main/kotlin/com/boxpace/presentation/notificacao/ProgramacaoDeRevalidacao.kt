@@ -15,14 +15,14 @@ import java.util.concurrent.TimeUnit
  * Agenda/cancela o refresh de background limitado (AD-NOTIFY-REFRESH, NFR11).
  *
  * Contratos não-negociáveis (Boundaries & Constraints):
- * - Intervalo mínimo ≥ 30 min ([INTERVALO_MINIMO_MINUTOS]).
+ * - Intervalo mínimo ≥ 15 min ([INTERVALO_MINIMO_MINUTOS]), mínimo do WorkManager.
  * - Backoff **exponencial** em falha ([BackoffPolicy.EXPONENTIAL]).
  * - Network constraint: exige conectividade ([NetworkType.CONNECTED]).
  * - Trabalho único e identificável ([WORK_NOME]) para a Configurações ligar/desligar.
  */
 object ProgramacaoDeRevalidacao {
 
-    const val INTERVALO_MINIMO_MINUTOS = 30L
+    const val INTERVALO_MINIMO_MINUTOS = 15L
     const val WORK_NOME = "revalidacao_periodica"
 
     /**

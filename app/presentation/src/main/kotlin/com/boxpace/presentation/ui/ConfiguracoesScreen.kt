@@ -46,7 +46,7 @@ import com.boxpace.presentation.vm.ConfiguracoesViewModel
  * (Epic 5) e **Notificações** (Story 3.1).
  *
  * A seção de notificações acende/desliga o refresh em background reutilizando o
- * [ProgramacaoDeRevalidacao] (WorkManager, `PeriodicWorkRequest` ≥ 30 min). No
+ * [ProgramacaoDeRevalidacao] (WorkManager, `PeriodicWorkRequest` ≥ 15 min). No
  * Android 13+, o toggle pede `POST_NOTIFICATIONS`; se negada, o worker roda
  * silencioso e aparece o aviso `Notificações desativadas`, sem repetir o prompt.
  *
@@ -154,7 +154,7 @@ fun ConfiguracoesScreen(
         )
         ConfigRow(
             titulo = "Avisar quando uma encomenda mudar de status",
-            descricao = "Revalida em segundo plano e notifica apenas quando houver novidade. Mínimo de 30 min entre buscas.",
+            descricao = "Revalida em segundo plano e notifica apenas quando houver novidade. Mínimo de 15 min entre buscas.",
             checked = notificarTransicoes,
             onCheckedChange = { aoAlternarNotificacoes(it) },
         )

@@ -944,4 +944,63 @@ class AdicionarEncomendaViewModelTest {
         val ultimoDelta = repo.deltas.last() as DeltaPendente.Salvar
         assertNull(ultimoDelta.encomenda.fechadaEm)
     }
+
+    // --- REVALIDAR_LOTE: revalida sequencialmente e chama aoConcluir ---
+
+    @Test
+    fun `revalidar lote revalida todos e invoca aoConcluir`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        adicionarEncomenda(vm, "AA222222222BR", "Dois")
+        val lista = vm.encomendasAtivas.value
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T11:00:00", "Objeto postado")),
+            )
+        }
+        var chamadasConcluir = 0
+        val chamadasAntes = remote.chamadas
+        vm.revalidarLote(lista) { chamadasConcluir++ }
+
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(remote.chamadas - chamadasAntes, 2)
+        assertEquals(1, chamadasConcluir)
+    }
+
+    @Test
+    fun `revalidar lote falha em um nao impede os demais`() = runTest {
+        val vm = criarVm()
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        adicionarEncomenda(vm, "AA222222222BR", "Dois")
+        val lista = vm.encomendasAtivas.value
+
+        var chamadas = 0
+        remote.resultado = { c, _, _ ->
+            chamadas++
+            if (chamadas == 1) throw ErroDeRastreio.SemConexao()
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T11:00:00", "OK")))
+        }
+        var chamadasConcluir = 0
+        vm.revalidarLote(lista) { chamadasConcluir++ }
+
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(2, chamadas)
+        assertEquals(1, chamadasConcluir)
+    }
+
+    @Test
+    fun `revalidar lote com lista vazia invoca aoConcluir`() = runTest {
+        val vm = criarVm()
+        var chamadasConcluir = 0
+        vm.revalidarLote(emptyList()) { chamadasConcluir++ }
+
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, chamadasConcluir)
+        assertEquals(0, remote.chamadas)
+    }
 }

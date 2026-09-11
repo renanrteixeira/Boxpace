@@ -10,7 +10,7 @@ import com.boxpace.domain.RevalidarEncomendaUseCase
 
 /**
  * Worker de background que revalida as encomendas **ativas** (AD-NOTIFY-REFRESH,
- * NFR11), disparado periodicamente (≥ 30 min, ver [ProgramacaoDeRevalidacao]).
+ * NFR11), disparado periodicamente (≥ 15 min, ver [ProgramacaoDeRevalidacao]).
  *
  * - Reutiliza a mesma regra de domínio de `revalidar` via
  *   [RevalidarEncomendaUseCase] — sem duplicação (persist `salvar` +
