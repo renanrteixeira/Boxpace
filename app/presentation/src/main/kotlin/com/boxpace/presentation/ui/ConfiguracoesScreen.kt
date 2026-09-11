@@ -62,6 +62,7 @@ fun ConfiguracoesScreen(
     onVoltar: () -> Unit,
     viewModel: ConfiguracoesViewModel,
     modifier: Modifier = Modifier,
+    mostrarVoltar: Boolean = true,
     solicitarVincular: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -130,12 +131,14 @@ fun ConfiguracoesScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onVoltar) { Text("Voltar") }
-            Spacer(Modifier.weight(1f))
+        if (mostrarVoltar) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onVoltar) { Text("Voltar") }
+                Spacer(Modifier.weight(1f))
+            }
         }
 
         Text(

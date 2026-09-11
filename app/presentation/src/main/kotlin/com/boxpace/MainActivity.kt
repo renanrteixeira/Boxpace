@@ -8,8 +8,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -17,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -27,15 +34,18 @@ import com.boxpace.data.cloud.ConnectivityObserver
 import com.boxpace.data.di.DataModule
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.RastrearEncomendaUseCase
+import com.boxpace.domain.SyncState
 import com.boxpace.presentation.notificacao.NotificadorTransicao
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
+import com.boxpace.presentation.ui.BoxpaceTopBar
 import com.boxpace.presentation.ui.ConfiguracoesScreen
 import com.boxpace.presentation.ui.DetalhesScreen
 import com.boxpace.presentation.ui.theme.BoxpaceTheme
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel
 import com.boxpace.presentation.vm.AdicionarEncomendaViewModel.UiEvent
 import com.boxpace.presentation.vm.ConfiguracoesViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     // Pedido de abertura vindo de deep link (notificação). O `selo` garante que
@@ -114,8 +124,6 @@ internal fun BoxpaceApp(
         )
     }
 
-    // Gatilhos de sync (AD-SYNC-2): app-start e reconexão de rede. Sem worker
-    // periódico; um sync em voo por vez (mutex do coordenador).
     val coordenador = remember(context) { DataModule.provideCoordenadorDeSync(context) }
     LaunchedEffect(Unit) {
         coordenador.dispararSync()
@@ -132,7 +140,18 @@ internal fun BoxpaceApp(
     val encomendasFechadas by viewModel.encomendasFechadas.collectAsState()
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
     var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
-    var telaConfiguracoes by rememberSaveable { mutableStateOf(false) }
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
+
+    val syncState by configuracoesVm.syncState.collectAsState()
+    val contaVinculada = syncState is SyncState.Vinculado || syncState is SyncState.SincronizacaoEmPausa
+
+    val contaEmail = if (contaVinculada) {
+        DataModule.provideTokenOAuthProvider().email()
+    } else {
+        null
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.eventos.collect { evento ->
@@ -142,7 +161,6 @@ internal fun BoxpaceApp(
         }
     }
 
-    // Encomenda em detalhe observada reativamente; volta à lista se somir.
     var encomendaDetalhe by remember { mutableStateOf<Encomenda?>(null) }
     LaunchedEffect(detalhesId) {
         val id = detalhesId
@@ -156,46 +174,66 @@ internal fun BoxpaceApp(
         detalhesId?.let { viewModel.revalidar(it) }
     }
 
-    // Deep link da notificação: abre a Detalhes (mesmo se já aberta) e revalida.
     LaunchedEffect(comandoAbrir?.id, comandoAbrir?.selo) {
         comandoAbrir?.let { comando ->
-            telaConfiguracoes = false
             detalhesId = comando.id
             viewModel.revalidar(comando.id)
         }
     }
 
-    when {
-        encomendaDetalhe != null -> {
-            DetalhesScreen(
-                encomenda = encomendaDetalhe!!,
-                onArquivar = { detalhesId?.let { viewModel.arquivar(it) } },
-                onReabrir = { detalhesId?.let { viewModel.reabrir(it) } },
-                onExcluir = {
-                    detalhesId?.let { viewModel.excluir(it) }
-                    detalhesId = null
-                },
-                onVoltar = { detalhesId = null },
-            )
-        }
-        telaConfiguracoes -> {
-            ConfiguracoesScreen(
-                onVoltar = { telaConfiguracoes = false },
-                viewModel = configuracoesVm,
-            )
-        }
-        else -> {
-            BoxpaceTabs(
-                encomendasAtivas = encomendasAtivas,
-                encomendasFechadas = encomendasFechadas,
-                onAdicionar = { dialogAberto = true },
-                onAbrirDetalhes = { detalhesId = it.id },
-                onArquivar = { viewModel.arquivar(it.id) },
-                onReabrir = { viewModel.reabrir(it.id) },
-                onRepetir = { viewModel.repetirBusca(it.id) },
-                onExcluir = { viewModel.excluir(it.id) },
-                onAbrirConfiguracoes = { telaConfiguracoes = true },
-            )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                ConfiguracoesScreen(
+                    onVoltar = { coroutineScope.launch { drawerState.close() } },
+                    viewModel = configuracoesVm,
+                    mostrarVoltar = false,
+                )
+            }
+        },
+    ) {
+        Scaffold(
+            topBar = {
+                BoxpaceTopBar(
+                    contaVinculada = contaVinculada,
+                    contaEmail = contaEmail,
+                    onAbrirDrawer = { coroutineScope.launch { drawerState.open() } },
+                )
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize(),
+            ) {
+                when {
+                    encomendaDetalhe != null -> {
+                        DetalhesScreen(
+                            encomenda = encomendaDetalhe!!,
+                            onArquivar = { detalhesId?.let { viewModel.arquivar(it) } },
+                            onReabrir = { detalhesId?.let { viewModel.reabrir(it) } },
+                            onExcluir = {
+                                detalhesId?.let { viewModel.excluir(it) }
+                                detalhesId = null
+                            },
+                            onVoltar = { detalhesId = null },
+                        )
+                    }
+                    else -> {
+                        BoxpaceTabs(
+                            encomendasAtivas = encomendasAtivas,
+                            encomendasFechadas = encomendasFechadas,
+                            onAdicionar = { dialogAberto = true },
+                            onAbrirDetalhes = { detalhesId = it.id },
+                            onArquivar = { viewModel.arquivar(it.id) },
+                            onReabrir = { viewModel.reabrir(it.id) },
+                            onRepetir = { viewModel.repetirBusca(it.id) },
+                            onExcluir = { viewModel.excluir(it.id) },
+                        )
+                    }
+                }
+            }
         }
     }
 

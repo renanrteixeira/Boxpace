@@ -261,7 +261,7 @@ class AdicionarEncomendaViewModelTest {
     }
 
     @Test
-    fun `falha de rede preserva campos e nao cria fantasma`() = runTest {
+    fun `falha de rede esgota retries e preserva campos sem criar fantasma`() = runTest {
         remote.resultado = { _, _, _ -> throw ErroDeRastreio.SemConexao() }
         val vm = criarVm()
         preencherCorreios(vm)
@@ -269,13 +269,51 @@ class AdicionarEncomendaViewModelTest {
         vm.adicionar()
 
         assertEquals("Sem conexão agora", vm.form.value.erro)
+        assertEquals(AdicionarEncomendaViewModel.MAX_RETRY_APOS_FALHA + 1, remote.chamadas)
         assertEquals("AA123456789BR", vm.form.value.codigo)
         assertEquals("Fone de ouvido", vm.form.value.etiqueta)
         assertTrue(vm.encomendas.value.isEmpty())
+        assertFalse(vm.form.value.carregando)
     }
 
     @Test
-    fun `falha generica usa mensagem neutra em vez de sem conexao`() = runTest {
+    fun `falha transitória é recuperada no retry sem usuário clicar de novo`() = runTest {
+        var falhas = 0
+        remote.resultado = { c, _, _ ->
+            if (falhas++ < 1) throw ErroDeRastreio.SemConexao()
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto postado")))
+        }
+        val vm = criarVm()
+        preencherCorreios(vm)
+
+        vm.adicionar()
+
+        assertEquals(2, remote.chamadas)
+        assertEquals("Objeto postado", vm.encomendas.value.single().ultimoStatus)
+        assertNull(vm.form.value.erro)
+        assertFalse(vm.form.value.carregando)
+        assertEquals(AdicionarEncomendaViewModel.UiEvent.Fechar, vm.eventos.first())
+    }
+
+    @Test
+    fun `aguardandoServidor zera apos sucesso em fluxo com retry`() = runTest {
+        var falhas = 0
+        remote.resultado = { c, _, _ ->
+            if (falhas++ < 1) throw ErroDeRastreio.SemConexao()
+            RastreioResult.Sucesso(codigo = c, eventos = emptyList())
+        }
+        val vm = criarVm()
+        preencherCorreios(vm)
+
+        vm.adicionar()
+
+        assertFalse(vm.form.value.aguardandoServidor)
+        assertFalse(vm.form.value.carregando)
+        assertTrue(vm.encomendas.value.isNotEmpty())
+    }
+
+    @Test
+    fun `falha generica esgota retries e usa mensagem neutra em vez de sem conexao`() = runTest {
         remote.resultado = { _, _, _ -> throw IllegalStateException("bug do provedor") }
         val vm = criarVm()
         preencherCorreios(vm)
@@ -283,6 +321,7 @@ class AdicionarEncomendaViewModelTest {
         vm.adicionar()
 
         assertEquals("Não deu pra adicionar agora. Tente de novo.", vm.form.value.erro)
+        assertEquals(AdicionarEncomendaViewModel.MAX_RETRY_APOS_FALHA + 1, remote.chamadas)
         assertEquals("AA123456789BR", vm.form.value.codigo)
         assertTrue(vm.encomendas.value.isEmpty())
     }

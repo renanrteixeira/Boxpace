@@ -46,7 +46,7 @@ fun rememberVincularDriveLauncher(
                     .getAuthorizationResultFromIntent(data)
                 val token = authResult.accessToken
                 if (!token.isNullOrBlank()) {
-                    tokenOAuthProvider.fornecer(token)
+                    tokenOAuthProvider.fornecer(token, email = authResult.toGoogleSignInAccount()?.email)
                     onVinculado()
                 } else {
                     Log.w(TAG, "OAuth sem token no resultado")
@@ -85,7 +85,7 @@ fun rememberVincularDriveLauncher(
                     } else {
                         val token = r.accessToken
                         if (!token.isNullOrBlank()) {
-                            tokenOAuthProvider.fornecer(token)
+                            tokenOAuthProvider.fornecer(token, email = r.toGoogleSignInAccount()?.email)
                             onVinculado()
                         } else {
                             Log.w(TAG, "OAuth resolveu sem token")

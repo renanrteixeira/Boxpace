@@ -34,7 +34,6 @@ fun BoxpaceTabs(
     onReabrir: (Encomenda) -> Unit = {},
     onRepetir: (Encomenda) -> Unit = {},
     onExcluir: (Encomenda) -> Unit = {},
-    onAbrirConfiguracoes: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var aba by rememberSaveable { mutableStateOf(0) }
@@ -60,7 +59,6 @@ fun BoxpaceTabs(
                 onReabrir = onReabrir,
                 onRepetir = onRepetir,
                 onExcluir = onExcluir,
-                onAbrirConfiguracoes = onAbrirConfiguracoes,
             )
             else -> FechadosScreen(
                 encomendas = encomendasFechadas,

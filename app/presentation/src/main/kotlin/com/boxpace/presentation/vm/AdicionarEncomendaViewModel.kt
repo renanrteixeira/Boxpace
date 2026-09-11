@@ -16,6 +16,7 @@ import com.boxpace.domain.RegrasDeRetencao
 import com.boxpace.presentation.notificacao.Gates
 import com.boxpace.presentation.notificacao.RevalidacaoGate
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -135,13 +136,13 @@ class AdicionarEncomendaViewModel(
             else -> viewModelScope.launch {
                 _form.update { it.copy(carregando = true, erro = null, aguardandoServidor = false) }
                 // Plano B (AC 1.3): se a busca passar de ~10s (cold start do
-                // scraper), a UI avisa que pode demorar até 30s na primeira vez.
+                // scraper), a UI avisa que pode demorar na primeira vez.
                 val alertaAcordar = viewModelScope.launch {
                     delay(TEMPO_ACORDAR_MS)
                     _form.update { it.copy(aguardandoServidor = true) }
                 }
                 try {
-                    when (val resultado = rastrear.executar(codigo, f.transportadora, cpf)) {
+                    when (val resultado = consultarComRetry(codigo, f.transportadora, cpf)) {
                         is RastreioResult.Sucesso -> {
                             val encomenda = montarEncomenda(
                                 codigo = codigo,
@@ -167,6 +168,33 @@ class AdicionarEncomendaViewModel(
                 } finally {
                     alertaAcordar.cancel()
                 }
+            }
+        }
+    }
+
+    /**
+     * Consulta mantendo o estado "em consulta" na UI: se a busca falhar por
+     * causa transitória (cold start do servidor —[ErroDeRastreio.SemConexao] ou
+     * exceção genérica), re-consulta automaticamente e aguarda o resultado — o
+     * usuário não precisa clicar de novo. Erros definitivos (código não
+     * encontrado / provedor não implementado) não são re-consultados.
+     */
+    private suspend fun consultarComRetry(
+        codigo: String,
+        transportadora: Transportadora,
+        cpf: String?,
+    ): RastreioResult {
+        var falhas = 0
+        while (true) {
+            try {
+                return rastrear.executar(codigo, transportadora, cpf)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ErroDeRastreio.CodigoNaoEncontrado) {
+                throw e
+            } catch (e: Exception) {
+                if (falhas >= MAX_RETRY_APOS_FALHA) throw e
+                falhas++
             }
         }
     }
@@ -306,6 +334,13 @@ class AdicionarEncomendaViewModel(
 
         /** Depois desse tempo de busca sem resposta, assume-se cold start do scraper. */
         const val TEMPO_ACORDAR_MS = 10_000L
+
+        /**
+         * Re-consultas automáticas após uma falha transitória (cold start do
+         * servidor): além da tentativa inicial, até esse número de novas
+         * tentativas mantendo a UI "em consulta" antes de mostrar o erro.
+         */
+        const val MAX_RETRY_APOS_FALHA = 3
 
         /** Buscas consecutivas sem eventos até aparecer o badge "Sem dados" (1 inicial + 2 refresh). */
         const val SEM_DADOS_BUSCAS = 3

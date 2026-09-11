@@ -10,16 +10,24 @@ class TokenOAuthProvider {
     @Volatile
     private var token: String? = null
 
+    @Volatile
+    private var email: String? = null
+
     /** Entrega o token curto (bearer) obtido do AuthorizationClient. */
-    fun fornecer(token: String) {
+    fun fornecer(token: String, email: String? = null) {
         this.token = token
+        this.email = email
     }
 
     /** Token atual, ou `null` se ainda não autorizado. */
     fun atual(): String? = token
 
+    /** Email da conta vinculada, ou `null` se não conhecido. */
+    fun email(): String? = email
+
     /** Limpa o token da memória (desvincular / 401 irrecuperável). */
     fun limpar() {
         token = null
+        email = null
     }
 }

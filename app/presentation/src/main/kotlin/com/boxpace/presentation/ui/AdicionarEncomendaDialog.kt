@@ -126,7 +126,7 @@ fun AdicionarEncomendaDialog(
                         Spacer(Modifier.width(12.dp))
                         Text(
                             text = if (form.aguardandoServidor) {
-                                "Aguardando o servidor acordar… isso leva até 30 s na primeira vez"
+                                "Servidor acordando… aguardando e tentando de novo (leva alguns minutos na primeira vez)"
                             } else {
                                 "Ainda procurando sua entrega…"
                             },
