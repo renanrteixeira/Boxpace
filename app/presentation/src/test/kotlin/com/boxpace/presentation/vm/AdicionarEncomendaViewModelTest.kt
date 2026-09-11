@@ -128,11 +128,14 @@ class AdicionarEncomendaViewModelTest {
     }
 
     /** Cria o VM e ativa a coleta dos flows derivados para o estado propagar. */
-    private fun TestScope.criarVm(): AdicionarEncomendaViewModel {
+    private fun TestScope.criarVm(
+        notificar: (Encomenda) -> Unit = {},
+    ): AdicionarEncomendaViewModel {
         val vm = AdicionarEncomendaViewModel(
             rastrear = RastrearEncomendaUseCase(remote),
             repository = repo,
             agora = { "2026-09-01T12:00:00Z" },
+            notificarTransicao = notificar,
         )
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.encomendas.collect { } }
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.encomendasAtivas.collect { } }
@@ -724,6 +727,110 @@ class AdicionarEncomendaViewModelTest {
         testScheduler.advanceUntilIdle()
 
         assertEquals(chamadasAntes + 1, repo.chamadasPurga)
+    }
+
+    @Test
+    fun `revalidar com transicao notifica a encomenda persistida`() = runTest {
+        val notificadas = mutableListOf<Encomenda>()
+        val vm = criarVm(notificar = { notificadas += it })
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(codigo = c, eventos = listOf(Evento("2026-09-01T09:00:00", "Objeto postado")))
+        }
+        vm.codigoMudou("AA111111111BR")
+        vm.etiquetaMudou("Um")
+        vm.adicionar()
+        val id = vm.encomendas.value.single().id
+
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, notificadas.size)
+        assertEquals("Objeto entregue ao destinatário", notificadas.single().ultimoStatus)
+        assertTrue(notificadas.single().statusEntregue)
+    }
+
+    @Test
+    fun `revalidar sem transicao nao notifica`() = runTest {
+        val notificadas = mutableListOf<Encomenda>()
+        val vm = criarVm(notificar = { notificadas += it })
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        testScheduler.advanceUntilIdle()
+
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(notificadas.isEmpty())
+    }
+
+    @Test
+    fun `revalidar com erro nao notifica`() = runTest {
+        val notificadas = mutableListOf<Encomenda>()
+        val vm = criarVm(notificar = { notificadas += it })
+        adicionarEncomenda(vm, "AA111111111BR", "Um")
+        val id = vm.encomendas.value.single().id
+        testScheduler.advanceUntilIdle()
+
+        remote.resultado = { _, _, _ -> throw ErroDeRastreio.SemConexao() }
+        vm.revalidar(id)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(notificadas.isEmpty())
+    }
+
+    @Test
+    fun `revalidarLote notifica somente as transicoes`() = runTest {
+        val notificadas = mutableListOf<Encomenda>()
+        val vm = criarVm(notificar = { notificadas += it })
+        remote.resultado = { c, _, _ -> RastreioResult.Sucesso(codigo = c, eventos = emptyList()) }
+        vm.codigoMudou("AA111111111BR")
+        vm.etiquetaMudou("Um")
+        vm.adicionar()
+        vm.codigoMudou("AA222222222BR")
+        vm.etiquetaMudou("Dois")
+        vm.adicionar()
+        testScheduler.advanceUntilIdle()
+
+        remote.resultado = { c, _, _ ->
+            if (c == "AA222222222BR") {
+                RastreioResult.Sucesso(
+                    codigo = c,
+                    eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                )
+            } else {
+                RastreioResult.Sucesso(codigo = c, eventos = emptyList())
+            }
+        }
+        vm.revalidarLote(vm.encomendas.value)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, notificadas.size)
+        assertEquals("AA222222222BR", notificadas.single().codigo)
+    }
+
+    @Test
+    fun `adicionar nunca notifica mesmo com entrega no primeiro fetch`() = runTest {
+        val notificadas = mutableListOf<Encomenda>()
+        val vm = criarVm(notificar = { notificadas += it })
+        remote.resultado = { c, _, _ ->
+            RastreioResult.Sucesso(
+                codigo = c,
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+            )
+        }
+        vm.codigoMudou("AA111111111BR")
+        vm.etiquetaMudou("Um")
+        vm.adicionar()
+
+        assertTrue(vm.encomendas.value.single().statusEntregue)
+        assertTrue(notificadas.isEmpty())
     }
 
     @Test

@@ -117,10 +117,12 @@ internal fun BoxpaceApp(
     configuracoesVm: ConfiguracoesViewModel,
 ) {
     val context = LocalContext.current
+    val notificador = remember(context) { NotificadorTransicao(context) }
     val viewModel: AdicionarEncomendaViewModel = viewModel {
         AdicionarEncomendaViewModel(
             rastrear = RastrearEncomendaUseCase(DataModule.provideEncomendaRemoteDataSource()),
             repository = DataModule.provideEncomendaRepository(context),
+            notificarTransicao = notificador::notificarTransicao,
         )
     }
 

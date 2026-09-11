@@ -51,6 +51,7 @@ class AdicionarEncomendaViewModel(
     private val agora: () -> String = { Instant.now().toString() },
     private val revalidarUseCase: RevalidarEncomendaUseCase = RevalidarEncomendaUseCase(repository, agora),
     private val gate: RevalidacaoGate = Gates.revalidacao,
+    private val notificarTransicao: (Encomenda) -> Unit = {},
 ) : ViewModel() {
 
     data class Form(
@@ -329,8 +330,10 @@ class AdicionarEncomendaViewModel(
                     is RastreioResult.Sucesso -> {
                         val atual = encomendas.value.firstOrNull { it.id == alvo.id } ?: return@comLock
                         when (val r = revalidarUseCase.executar(atual, resultado)) {
-                            is RevalidarEncomendaUseCase.Resultado.Sucesso ->
+                            is RevalidarEncomendaUseCase.Resultado.Sucesso -> {
+                                if (r.transitou) notificarTransicao(r.encomenda)
                                 repository.purgarFechadasAntigas(PURGA_DIAS)
+                            }
                             else -> Unit
                         }
                     }
