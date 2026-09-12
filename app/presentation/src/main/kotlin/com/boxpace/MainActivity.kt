@@ -143,6 +143,7 @@ internal fun BoxpaceApp(
     var dialogAberto by rememberSaveable { mutableStateOf(false) }
     var detalhesId by rememberSaveable { mutableStateOf<String?>(null) }
     var refrescando by remember { mutableStateOf(false) }
+    var refrescandoDetalhe by remember { mutableStateOf(false) }
     var abaAtiva by rememberSaveable { mutableStateOf(0) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -222,6 +223,13 @@ internal fun BoxpaceApp(
                                 detalhesId = null
                             },
                             onVoltar = { detalhesId = null },
+                            refrescando = refrescandoDetalhe,
+                            aoAtualizar = {
+                                if (!refrescandoDetalhe) {
+                                    refrescandoDetalhe = true
+                                    detalhesId?.let { viewModel.revalidar(it) { refrescandoDetalhe = false } }
+                                }
+                            },
                         )
                     }
                     else -> {

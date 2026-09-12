@@ -295,10 +295,14 @@ class AdicionarEncomendaViewModel(
      * A execução é guardada pelo [RevalidacaoGate] (mutex por `codigo`) comum ao
      * worker, evitando fetch concorrente no mesmo `codigo` (CONCORRENCIA).
      */
-    fun revalidar(id: String) {
+    fun revalidar(id: String, aoConcluir: () -> Unit = {}) {
         val alvo = encomendas.value.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
-            revalidarSuspenso(alvo)
+            try {
+                revalidarSuspenso(alvo)
+            } finally {
+                aoConcluir()
+            }
         }
     }
 

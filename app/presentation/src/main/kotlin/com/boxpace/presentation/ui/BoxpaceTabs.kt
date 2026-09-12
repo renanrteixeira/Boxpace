@@ -13,7 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -48,7 +48,7 @@ fun BoxpaceTabs(
     val abas = listOf("Ativos", "Fechados")
 
     Column(modifier = modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = aba) {
+        PrimaryTabRow(selectedTabIndex = aba) {
             abas.forEachIndexed { index, titulo ->
                 Tab(
                     selected = aba == index,

@@ -29,7 +29,13 @@ class NotificadorTransicao(
 ) {
 
     fun notificarTransicao(encomenda: Encomenda) {
-        if (!temPermissao()) return
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
         criarCanal()
         val intent = Intent(context, MainActivity::class.java).apply {
             action = ACAO_ABRIR_DETALHE
