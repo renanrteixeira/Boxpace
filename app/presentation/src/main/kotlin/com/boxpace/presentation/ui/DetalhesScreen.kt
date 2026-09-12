@@ -15,10 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boxpace.domain.Encomenda
 import com.boxpace.domain.Evento
+import com.boxpace.presentation.ui.theme.Danger
+import com.boxpace.presentation.ui.theme.OnDanger
 import com.boxpace.presentation.ui.theme.coresBadgeSucesso
 import java.time.format.DateTimeFormatter
 
@@ -76,7 +79,13 @@ fun DetalhesScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            OutlinedButton(onClick = onVoltar) {
+            Button(
+                onClick = onVoltar,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
                 Text("← Voltar")
             }
 
@@ -101,14 +110,27 @@ fun DetalhesScreen(
             // Ações de ciclo de vida
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (encomenda.fechadaEm == null) {
-                    FilledTonalButton(onClick = onArquivar) { Text("Arquivar") }
+                    Button(
+                        onClick = onArquivar,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) { Text("Arquivar") }
                 } else {
-                    FilledTonalButton(onClick = onReabrir) { Text("Reabrir") }
+                    Button(
+                        onClick = onReabrir,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) { Text("Reabrir") }
                 }
-                OutlinedButton(
+                Button(
                     onClick = { confirmandoExclusao = true },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Danger,
+                        contentColor = OnDanger,
                     ),
                 ) {
                     Text("Excluir")
@@ -253,15 +275,15 @@ private fun quando(encomenda: Encomenda): StatusBadgeSpec? {
         StatusBadgeSpec(
             texto = "Chegou!",
             glyph = "✓",
-            corFundo = MaterialTheme.colorScheme.primaryContainer,
-            corTexto = MaterialTheme.colorScheme.onPrimaryContainer,
+            corFundo = coresBadgeSucesso(MaterialTheme.colorScheme).fundo,
+            corTexto = coresBadgeSucesso(MaterialTheme.colorScheme).texto,
         )
     } else {
         StatusBadgeSpec(
             texto = "Em trânsito",
             glyph = "↗",
-            corFundo = coresBadgeSucesso(MaterialTheme.colorScheme).fundo,
-            corTexto = coresBadgeSucesso(MaterialTheme.colorScheme).texto,
+            corFundo = MaterialTheme.colorScheme.primary,
+            corTexto = MaterialTheme.colorScheme.onPrimary,
         )
     }
 }
