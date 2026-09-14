@@ -31,11 +31,24 @@ class EventoDTO(BaseModel):
     cidade: str | None = None
     uf: str | None = None
     unidade: str | None = None
+    entregue: bool = False
 
 
 class RastrearResponse(BaseModel):
     codigo: str
     eventos: list[EventoDTO] = Field(default_factory=list)
+
+
+def descricao_indica_entrega(texto: str) -> bool:
+    """Fallback de texto (defesa em profundidade) para estados de entrega.
+
+    A sinalização **estruturada** (`EventoDTO.entregue`) é o sinal primário e
+    vem do código de varredura/status do provedor (AD-6); este predicado cobre
+    apenas as variantes de resposta sem código — ex.: `descricaoWeb` já vindo
+    como texto em vez de código.
+    """
+    baixo = texto.lower()
+    return any(marcador in baixo for marcador in ("entregue", "assinad", "assinatur", "assinar"))
 
 
 @app.post("/rastrear", response_model=RastrearResponse, responses={501: {"description": "Provedor não implementado"}})

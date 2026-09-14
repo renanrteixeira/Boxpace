@@ -22,7 +22,7 @@ import time
 
 from fastapi import HTTPException
 
-from app import EventoDTO, RastrearRequest, RastrearResponse
+from app import EventoDTO, RastrearRequest, RastrearResponse, descricao_indica_entrega
 
 _BASE_URL = "https://official.jtjms-br.com"
 _DETAIL_PATH = "/official/logisticsTracking/v2/getDetailByWaybillNo"
@@ -172,6 +172,17 @@ def _normalizar_data(item: dict) -> str:
     return bruto
 
 
+def _evento_entregue(item: dict, descricao: str) -> bool:
+    # O código 100 é a varredura de entrega/signatário da J&T; `scanTypeName`
+    # "快件签收" é o nome de varredura da assinatura. Sinalização estruturada
+    # antes de qualquer texto (o `customerTracking` é texto livre do provedor).
+    if item.get("code") == 100:
+        return True
+    if str(item.get("scanTypeName") or "") == "快件签收":
+        return True
+    return descricao_indica_entrega(descricao)
+
+
 def _mapear_evento(item: dict) -> EventoDTO:
     if not isinstance(item, dict):
         return EventoDTO(data="", descricao="")
@@ -199,6 +210,7 @@ def _mapear_evento(item: dict) -> EventoDTO:
         cidade=item.get("scanNetworkCity") or None,
         uf=item.get("scanNetworkProvince") or None,
         unidade=item.get("scanNetworkName") or None,
+        entregue=_evento_entregue(item, str(descricao)),
     )
 
 

@@ -18,7 +18,7 @@ from datetime import datetime
 
 from fastapi import HTTPException
 
-from app import EventoDTO, RastrearRequest, RastrearResponse
+from app import EventoDTO, RastrearRequest, RastrearResponse, descricao_indica_entrega
 
 _BASE_URL = "https://rastreamento.correios.com.br/app"
 _CAPTCHA_URL = "https://rastreamento.correios.com.br/core/securimage/securimage_show.php"
@@ -201,6 +201,20 @@ def _local_unidade(unidade) -> str | None:
     return base or None
 
 
+# Códigos curtos de `descricaoWeb` que encerram o ciclo do objeto — entrega ao
+# destinatário OU devolução/entrega ao remetente (estados terminais). A
+# sinalização estruturada domina o texto: é ela que alimenta `entregue` (AD-6).
+_MARCADORES_TERMINAIS = ("ENTREGU", "DEVOLVID", "DEVPAR")
+
+
+def _evento_entregue(item: dict, descricao: str) -> bool:
+    web = str(item.get("descricaoWeb") or "").upper()
+    if any(marcador in web for marcador in _MARCADORES_TERMINAIS):
+        return True
+    origem = f"{item.get('descricao') or ''} {item.get('descricaoFrontEnd') or ''} {descricao}"
+    return descricao_indica_entrega(origem)
+
+
 def _mapear_evento(item: dict) -> EventoDTO:
     # A ordem importa: no shape real `descricaoWeb` é só o código curto
     # ("ENTREGUE", "TRANSITO", "PAR07") — o texto humano vive em `descricao`
@@ -208,7 +222,6 @@ def _mapear_evento(item: dict) -> EventoDTO:
     # variantes da API que já o devolvem como texto.
     main = str(item.get("descricao") or item.get("descricaoFrontEnd") or item.get("descricaoWeb") or "").strip()
     linhas = [main] if main else []
-
     # Transferências: "de X para Y" como no site (unidadeDestino só vem preenchido
     # nesses eventos). Detalhe/observações incrementam o resto.
     origem = _local_unidade(item.get("unidade"))
@@ -232,6 +245,7 @@ def _mapear_evento(item: dict) -> EventoDTO:
         cidade=cidade,
         uf=uf,
         unidade=_nome_da_unidade(item),
+        entregue=_evento_entregue(item, atual),
     )
 
 

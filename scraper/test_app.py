@@ -60,6 +60,7 @@ def test_happy_path_correios_scraping_mapeado(monkeypatch) -> None:
     assert body["eventos"][0]["cidade"] == "Cuiabá"
     assert body["eventos"][0]["uf"] == "MT"
     assert body["eventos"][0]["unidade"] == "CTE CUIABA"
+    assert body["eventos"][0]["entregue"] is True
 
 
 def test_rota_jt_happy_path_shape_real(monkeypatch) -> None:
@@ -80,6 +81,7 @@ def test_rota_jt_happy_path_shape_real(monkeypatch) -> None:
     assert evento["cidade"] is None
     assert evento["uf"] is None
     assert evento["unidade"] is None
+    assert evento["entregue"] is True
 
 
 def test_rota_jt_assinatura_sem_customer_tracking_composta(monkeypatch) -> None:

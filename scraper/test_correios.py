@@ -110,7 +110,7 @@ def test_mapeia_shape_oficial_ordenado_cronologicamente(monkeypatch) -> None:
             uf="SP",
             unidade="AV REBOUCAS, 1000",
         ),
-        EventoDTO(data="2026-09-01T08:00:00", descricao="Entregue", cidade="SAO PAULO", uf="SP", unidade=None),
+        EventoDTO(data="2026-09-01T08:00:00", descricao="Entregue", cidade="SAO PAULO", uf="SP", unidade=None, entregue=True),
     ]
 
 
@@ -175,6 +175,42 @@ def test_prefere_descricao_humana_ao_descricao_web_codigo(monkeypatch) -> None:
     resp = correios.rastrear(_request())
 
     assert resp.eventos[0].descricao == "Objeto entregue ao destinatário"
+
+
+def test_descricao_web_estruturada_marca_entregue_e_devolvido(monkeypatch) -> None:
+    dados = {
+        "eventos": [
+            {"descricaoWeb": "ENTREGUE", "dtHrCriado": "2026-09-01 08:00:00.000000"},
+            {"descricaoWeb": "DEVOLVIDO", "dtHrCriado": "2026-09-02 08:00:00.000000"},
+            {"descricaoWeb": "SAI", "dtHrCriado": "2026-09-03 08:00:00.000000"},
+        ]
+    }
+    monkeypatch.setattr(correios, "_rastrear_sync", lambda codigo: dados)
+
+    resp = correios.rastrear(_request())
+
+    assert [e.entregue for e in resp.eventos] == [True, True, False]
+
+
+def test_devolvido_ao_remetente_marca_entregue_mesmo_sem_palavra_chave(monkeypatch) -> None:
+    # Estado terminal "Objeto devolvido ao remetente": o texto não contém
+    # "entregue/assinado" (furo antigo), mas o código estruturado DEVOLVIDO deve
+    # marcar `entregue` — sem depender de heuristic de substring.
+    dados = {
+        "eventos": [
+            {
+                "descricao": "Objeto devolvido ao remetente",
+                "descricaoWeb": "DEVOLVIDO",
+                "dtHrCriado": "2026-09-01 08:00:00.000000",
+            }
+        ]
+    }
+    monkeypatch.setattr(correios, "_rastrear_sync", lambda codigo: dados)
+
+    resp = correios.rastrear(_request())
+
+    assert resp.eventos[0].descricao == "Objeto devolvido ao remetente"
+    assert resp.eventos[0].entregue is True
 
 
 def test_objeto_nao_encontrado_404(monkeypatch) -> None:
