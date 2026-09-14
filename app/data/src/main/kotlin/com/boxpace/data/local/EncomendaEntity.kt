@@ -44,6 +44,8 @@ data class EventoEntity(
     val cidade: String?,
     val uf: String?,
     val unidade: String,
+    /** Sinalização estruturada de entrega (AD-6); espelha `Evento.entregue`. */
+    val entregue: Boolean = false,
 )
 
 /** Junção 1-N restaurando a encomenda com seus eventos (timeline). */

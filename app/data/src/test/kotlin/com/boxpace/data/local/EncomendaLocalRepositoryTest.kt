@@ -58,7 +58,7 @@ class EncomendaLocalRepositoryTest {
         transportadora = transportadora,
         etiqueta = "Fone de ouvido",
         ultimoStatus = eventos.lastOrNull()?.descricao,
-        statusEntregue = eventos.any { it.descricao.contains("entregue", ignoreCase = true) },
+        statusEntregue = eventos.any { it.entregue },
         eventos = eventos,
         criadaEm = "2026-09-01T11:00:00Z",
         atualizadaEm = atualizadaEm,
@@ -229,10 +229,11 @@ class EncomendaLocalRepositoryTest {
             eventos = listOf(
                 Evento(
                     data = "2026-09-01T10:00:00Z",
-                    descricao = "Objeto postado",
+                    descricao = "Objeto entregue ao destinatário",
                     cidade = "Cuiabá",
                     uf = "MT",
                     unidade = "CTE CUIABA",
+                    entregue = true,
                 ),
             ),
             criadaEm = "2026-09-01T09:00:00Z",

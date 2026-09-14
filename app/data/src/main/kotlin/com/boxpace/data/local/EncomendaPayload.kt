@@ -30,6 +30,7 @@ data class EventoPayloadDto(
     val cidade: String? = null,
     val uf: String? = null,
     val unidade: String? = null,
+    val entregue: Boolean = false,
 )
 
 /** Conversão encomenda de/para payload JSON (espelho de delta). */
@@ -55,6 +56,7 @@ internal object EncomendaPayloadMapper {
                         cidade = it.cidade,
                         uf = it.uf,
                         unidade = it.unidade,
+                        entregue = it.entregue,
                     )
                 },
                 buscasSemEventos = encomenda.buscasSemEventos,
@@ -71,7 +73,7 @@ internal object EncomendaPayloadMapper {
             ultimoStatus = dto.ultimoStatus,
             statusEntregue = dto.statusEntregue,
             eventos = dto.eventos.map {
-                Evento(data = it.data, descricao = it.descricao, cidade = it.cidade, uf = it.uf, unidade = it.unidade)
+                Evento(data = it.data, descricao = it.descricao, cidade = it.cidade, uf = it.uf, unidade = it.unidade, entregue = it.entregue)
             },
             criadaEm = dto.criadaEm,
             atualizadaEm = dto.atualizadaEm,

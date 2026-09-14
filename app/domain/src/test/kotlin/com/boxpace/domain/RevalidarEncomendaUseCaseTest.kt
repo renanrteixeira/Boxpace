@@ -81,6 +81,15 @@ class RevalidarEncomendaUseCaseTest {
             },
         )
 
+    /** Fetch com evento terminal sinalizado pelo scraper (flag estruturada, AD-6). */
+    private fun entrega() =
+        RastreioResult.Sucesso(
+            codigo = "AA123456789BR",
+            eventos = listOf(
+                Evento(data = "2026-09-01T10:00:00", descricao = "Objeto entregue ao destinatário", entregue = true),
+            ),
+        )
+
     // --- HAPPY_TRANSICAO: ultimoStatus muda → transitou = true ---
 
     @Test
@@ -123,7 +132,7 @@ class RevalidarEncomendaUseCaseTest {
         val useCase = RevalidarEncomendaUseCase(repo, agora = { "2026-09-01T12:00:00Z" })
         val atual = encomenda(ultimoStatus = "Saiu para entrega")
 
-        val r = useCase.executar(atual, sucesso("Objeto entregue ao destinatário"))
+        val r = useCase.executar(atual, entrega())
 
         val sucesso = assertIs<RevalidarEncomendaUseCase.Resultado.Sucesso>(r)
         assertTrue(sucesso.encomenda.estaEntregue())
@@ -142,7 +151,7 @@ class RevalidarEncomendaUseCaseTest {
             fechadaEm = "2026-09-01T08:00:00Z",
         )
 
-        val r = useCase.executar(atual, sucesso("Objeto entregue ao destinatário"))
+        val r = useCase.executar(atual, entrega())
 
         val sucesso = assertIs<RevalidarEncomendaUseCase.Resultado.Sucesso>(r)
         assertEquals("2026-09-01T08:00:00Z", sucesso.encomenda.fechadaEm)

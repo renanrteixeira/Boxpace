@@ -35,25 +35,20 @@ data class Encomenda(
     fun estaFechada(): Boolean = fechadaEm != null
 
     /**
-     * Derivado do rastreio: `true` quando algum evento indica "entregue"
-     * (heurística centralizada no domínio — uma única fonte, AD-6).
+     * Derivado do rastreio: `true` quando algum evento carrega a sinalização
+     * estruturada `Evento.entregue` (AD-6). Fonte primária é o código de
+     * varredura/status do provedor, não o texto.
      * Não depende de [estaFechada] nem de [statusEntregue].
      */
     fun estaEntregue(): Boolean = eventosIndicamEntrega(eventos)
 
     companion object {
         /**
-         * Heurística de "entregue" centralizada (AD-6) — única fonte de decisão
-         * para os textos "entregue"/"assinado" (J&T assina antes da entrega útil).
-         * Usada por [estaEntregue] e pelo fluxo de adição da [AdicionarEncomenda].
+         * União booleana das sinalizações estruturadas de entrega (AD-6).
+         * Distinta de "fechado" (AD-FECHADO): fechar arquiva; entregue encerra
+         * o ciclo de rastreio. Usada por [estaEntregue] e pelo fluxo de adição.
          */
         fun eventosIndicamEntrega(eventos: List<Evento>): Boolean =
-            eventos.any { evento ->
-                val descricao = evento.descricao
-                descricao.contains("entregue", ignoreCase = true) ||
-                    descricao.contains("assinad", ignoreCase = true) ||
-                    descricao.contains("assinatur", ignoreCase = true) ||
-                    descricao.contains("assinar", ignoreCase = true)
-            }
+            eventos.any { it.entregue }
     }
 }

@@ -90,7 +90,7 @@ object SchemaBoxpace {
         updatedAt = encomenda.atualizadaEm,
         cpfDestinatario = encomenda.cpfDestinatario,
         eventos = deduplicarEventos(
-            encomenda.eventos.map { EventoBoxpace(it.data, it.descricao, it.cidade, it.uf, it.unidade) },
+            encomenda.eventos.map { EventoBoxpace(it.data, it.descricao, it.cidade, it.uf, it.unidade, it.entregue) },
         ),
         tombstone = false,
     )
@@ -107,7 +107,7 @@ object SchemaBoxpace {
             ultimoStatus = registro.ultimoStatus,
             statusEntregue = registro.statusEntregue,
             eventos = registro.eventos.map {
-                Evento(data = it.data, descricao = it.descricao, cidade = it.cidade, uf = it.uf, unidade = it.unidade)
+                Evento(data = it.data, descricao = it.descricao, cidade = it.cidade, uf = it.uf, unidade = it.unidade, entregue = it.entregue)
             },
             criadaEm = registro.criadaEm ?: "",
             atualizadaEm = registro.updatedAt,
@@ -179,6 +179,11 @@ data class Fechado(
     val atualizadoEm: String,
 )
 
+/**
+ * Um evento da timeline. `entregue` é a sinalização estruturada de entrega
+ * (AD-6); campo com default delineado: arquivos antigos (sem a chave) decodam
+ * como `false` e arquivos novos omitem `false` via encodeDefaults padrão.
+ */
 @Serializable
 data class EventoBoxpace(
     val data: String,
@@ -186,6 +191,7 @@ data class EventoBoxpace(
     val cidade: String? = null,
     val uf: String? = null,
     val unidade: String? = null,
+    val entregue: Boolean = false,
 )
 
 /** Um registro por chave (`preferencias:<nome>`), LWW por `updatedAt` (AD-PREFS-GRANULARIDADE). */

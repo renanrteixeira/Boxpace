@@ -247,6 +247,7 @@ class EncomendaLocalRepository(
         cidade = cidade,
         uf = uf,
         unidade = unidade ?: "",
+        entregue = entregue,
     )
 
     private fun EventoEntity.paraDominio(): Evento = Evento(
@@ -255,6 +256,7 @@ class EncomendaLocalRepository(
         cidade = cidade,
         uf = uf,
         unidade = unidade.takeIf { it.isNotEmpty() },
+        entregue = entregue,
     )
 
     private companion object {

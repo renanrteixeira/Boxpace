@@ -370,7 +370,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { _, _, _ ->
             RastreioResult.Sucesso(
                 codigo = "AA123456789BR",
-                eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         val vm = criarVm()
@@ -386,7 +386,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { _, _, _ ->
             RastreioResult.Sucesso(
                 codigo = "AA123456789BR",
-                eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento(data = "2026-09-01T11:00:00", descricao = "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         val vm = criarVm()
@@ -402,12 +402,12 @@ class AdicionarEncomendaViewModelTest {
     }
 
     @Test
-    fun `adicionar jt assinado reconhece entrega pela heuristica central`() = runTest {
+    fun `adicionar jt assinado reconhece entrega pela sinalizacao estruturada`() = runTest {
         remote.resultado = { _, _, _ ->
             RastreioResult.Sucesso(
                 codigo = "888002520892021",
                 eventos = listOf(
-                    Evento(data = "2026-09-01T11:00:00", descricao = "[Feira de Santana] O pacote foi assinado! O signatário é [Assinar pelo próprio]"),
+                    Evento(data = "2026-09-01T11:00:00", descricao = "[Feira de Santana] O pacote foi assinado! O signatário é [Assinar pelo próprio]", entregue = true),
                 ),
             )
         }
@@ -605,7 +605,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)
@@ -744,7 +744,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)
@@ -802,7 +802,7 @@ class AdicionarEncomendaViewModelTest {
             if (c == "AA222222222BR") {
                 RastreioResult.Sucesso(
                     codigo = c,
-                    eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                    eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
                 )
             } else {
                 RastreioResult.Sucesso(codigo = c, eventos = emptyList())
@@ -822,7 +822,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.codigoMudou("AA111111111BR")
@@ -899,7 +899,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)
@@ -950,7 +950,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)
@@ -977,7 +977,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)
@@ -1015,7 +1015,7 @@ class AdicionarEncomendaViewModelTest {
         remote.resultado = { c, _, _ ->
             RastreioResult.Sucesso(
                 codigo = c,
-                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário")),
+                eventos = listOf(Evento("2026-09-01T10:00:00", "Objeto entregue ao destinatário", entregue = true)),
             )
         }
         vm.revalidar(id)

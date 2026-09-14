@@ -17,12 +17,13 @@ class RastreioMapperTest {
             cidade = "Cuiabá",
             uf = "MT",
             unidade = "CTE CUIABA",
+            entregue = true,
         )
 
         val evento = RastreioMapper.paraEvento(dto)
 
         assertEquals(
-            Evento(data = "2026-09-01T10:30:00", descricao = "Objeto entregue ao destinatário", cidade = "Cuiabá", uf = "MT", unidade = "CTE CUIABA"),
+            Evento(data = "2026-09-01T10:30:00", descricao = "Objeto entregue ao destinatário", cidade = "Cuiabá", uf = "MT", unidade = "CTE CUIABA", entregue = true),
             evento,
         )
     }
@@ -67,5 +68,36 @@ class RastreioMapperTest {
         val resposta = DataModule.json.decodeFromString<ContratoRastrearResponse>("""{"codigo":"AA123456789BR"}""")
 
         assertTrue(resposta.eventos.isEmpty())
+    }
+
+    @Test
+    fun `desserializa flag entregue do contrato`() {
+        val resposta = DataModule.json.decodeFromString<ContratoRastrearResponse>(
+            """
+            {
+              "codigo": "AA123456789BR",
+              "eventos": [
+                { "data": "2026-09-01T10:30:00", "descricao": "Objeto devolvido ao remetente", "entregue": true }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue(resposta.eventos.single().entregue)
+        assertEquals(true, RastreioMapper.paraEvento(resposta.eventos.single()).entregue)
+    }
+
+    @Test
+    fun `resposta sem a chave entregue decodifica como falso`() {
+        val resposta = DataModule.json.decodeFromString<ContratoRastrearResponse>(
+            """
+            {
+              "codigo": "AA123456789BR",
+              "eventos": [{ "data": "2026-09-01T10:30:00", "descricao": "Objeto postado" }]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(false, resposta.eventos.single().entregue)
     }
 }

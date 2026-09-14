@@ -25,6 +25,7 @@ data class ContratoEventoDto(
     val cidade: String? = null,
     val uf: String? = null,
     val unidade: String? = null,
+    val entregue: Boolean = false,
 )
 
 @Serializable
@@ -43,5 +44,6 @@ object RastreioMapper {
         cidade = dto.cidade,
         uf = dto.uf,
         unidade = dto.unidade,
+        entregue = dto.entregue,
     )
 }
