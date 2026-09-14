@@ -8,7 +8,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 private val HoraFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("HH:mm")
+    DateTimeFormatter.ofPattern("dd/MM HH:mm")
 
 /**
  * Converte um ISO-8601 para [ZonedDateTime] tolerante à ausência de offset:

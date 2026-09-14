@@ -7,10 +7,10 @@ import kotlin.test.assertEquals
 class FormatExtTest {
 
     @Test
-    fun `formatarHorario valida ISO-8601 e retorna HH-mm`() {
+    fun `formatarHorario valida ISO-8601 e retorna dd-mm-hh-mm`() {
         val resultado = formatarHorario("2026-09-01T14:30:00Z")
-        assertEquals(5, resultado.length)
-        val partes = resultado.split(":")
+        assertEquals(11, resultado.length)
+        val partes = resultado.split("/")
         assertEquals(2, partes.size)
     }
 
@@ -27,15 +27,15 @@ class FormatExtTest {
     @Test
     fun `formatarHorario aceita ISO naive sem offset como vi do scraper`() {
         val resultado = formatarHorario("2026-09-01T10:00:00")
-        assertEquals(5, resultado.length)
-        val partes = resultado.split(":")
+        assertEquals(11, resultado.length)
+        val partes = resultado.split("/")
         assertEquals(2, partes.size)
     }
 
     @Test
     fun `formatarHorario naive com fracao de segundo e aceito`() {
         val resultado = formatarHorario("2026-09-01T10:00:00.000000")
-        assertEquals(5, resultado.length)
+        assertEquals(11, resultado.length)
     }
 
     @Test
