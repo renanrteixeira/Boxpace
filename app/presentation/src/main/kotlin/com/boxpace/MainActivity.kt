@@ -36,6 +36,7 @@ import com.boxpace.domain.Encomenda
 import com.boxpace.domain.RastrearEncomendaUseCase
 import com.boxpace.domain.SyncState
 import com.boxpace.presentation.notificacao.NotificadorTransicao
+import com.boxpace.presentation.notificacao.ProgramacaoDeRevalidacao
 import com.boxpace.presentation.ui.AdicionarEncomendaDialog
 import com.boxpace.presentation.ui.BoxpaceTabs
 import com.boxpace.presentation.ui.BoxpaceTopBar
@@ -134,6 +135,15 @@ internal fun BoxpaceApp(
             if (conectado) {
                 coordenador.dispararSync()
             }
+        }
+    }
+
+    // Rede de segurança do rastreio em segundo plano: se o usuário deixou o
+    // toggle de notificações ligado mas o OS derrubou o foreground service
+    // desde a última execução, re-inicia na abertura do app (idempotente).
+    LaunchedEffect(Unit) {
+        if (ProgramacaoDeRevalidacao.estaAtivo(context)) {
+            ProgramacaoDeRevalidacao.iniciarServico(context)
         }
     }
 
